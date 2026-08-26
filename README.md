@@ -1,4 +1,4 @@
-# Sparring Partner
+# Socratic Partner
 
 A personal conversational AI designed to challenge assumptions, expose tradeoffs, and help
 clarify decisions without optimizing for either validation or disagreement.
@@ -76,10 +76,10 @@ DISCORD_BOT_TOKEN=your-secret-bot-token
 DISCORD_GUILD_ID=your-private-server-id
 DISCORD_TEST_CHANNEL_ID=your-private-test-channel-id
 DISCORD_ALLOWED_USER_ID=your-user-id
-SPARRING_PARTNER_TEST_MODE=true
-SPARRING_PARTNER_DATABASE_PATH=data/sparring_partner.sqlite3
-SPARRING_PARTNER_DEFAULT_INTERVAL_HOURS=24
-SPARRING_PARTNER_LOG_LEVEL=INFO
+SOCRATIC_PARTNER_TEST_MODE=true
+SOCRATIC_PARTNER_DATABASE_PATH=data/socratic_partner.sqlite3
+SOCRATIC_PARTNER_DEFAULT_INTERVAL_HOURS=24
+SOCRATIC_PARTNER_LOG_LEVEL=INFO
 ```
 
 `.env` and runtime data are ignored by Git. Never commit or paste the bot token, client secret,
@@ -88,7 +88,7 @@ or other credentials.
 ## Run
 
 ```powershell
-sparring-partner
+socratic-partner
 ```
 
 When connected, use `/status` in the configured test channel. Use `/pause` and `/resume` to

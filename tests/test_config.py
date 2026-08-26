@@ -1,14 +1,14 @@
 import pytest
 
-from sparring_partner.config import ConfigurationError, Settings
+from socratic_partner.config import ConfigurationError, Settings
 
 VALID_ENVIRONMENT = {
     "DISCORD_BOT_TOKEN": "test-token",
     "DISCORD_GUILD_ID": "100",
     "DISCORD_TEST_CHANNEL_ID": "200",
     "DISCORD_ALLOWED_USER_ID": "300",
-    "SPARRING_PARTNER_TEST_MODE": "true",
-    "SPARRING_PARTNER_LOG_LEVEL": "INFO",
+    "SOCRATIC_PARTNER_TEST_MODE": "true",
+    "SOCRATIC_PARTNER_LOG_LEVEL": "INFO",
 }
 
 
@@ -20,7 +20,7 @@ def test_loads_valid_environment() -> None:
     assert settings.discord_test_channel_id == 200
     assert settings.discord_allowed_user_id == 300
     assert settings.test_mode is True
-    assert settings.database_path.as_posix() == "data/sparring_partner.sqlite3"
+    assert settings.database_path.as_posix() == "data/socratic_partner.sqlite3"
     assert settings.default_interval_seconds == 24 * 60 * 60
 
 
@@ -39,16 +39,16 @@ def test_rejects_non_numeric_identifier() -> None:
 
 
 def test_rejects_invalid_default_interval() -> None:
-    environment = {**VALID_ENVIRONMENT, "SPARRING_PARTNER_DEFAULT_INTERVAL_HOURS": "0"}
+    environment = {**VALID_ENVIRONMENT, "SOCRATIC_PARTNER_DEFAULT_INTERVAL_HOURS": "0"}
 
     with pytest.raises(
-        ConfigurationError, match="SPARRING_PARTNER_DEFAULT_INTERVAL_HOURS must be positive"
+        ConfigurationError, match="SOCRATIC_PARTNER_DEFAULT_INTERVAL_HOURS must be positive"
     ):
         Settings.from_environment(environment, env_file=None)
 
 
 def test_rejects_non_test_mode_during_first_increment() -> None:
-    environment = {**VALID_ENVIRONMENT, "SPARRING_PARTNER_TEST_MODE": "false"}
+    environment = {**VALID_ENVIRONMENT, "SOCRATIC_PARTNER_TEST_MODE": "false"}
 
-    with pytest.raises(ConfigurationError, match="requires SPARRING_PARTNER_TEST_MODE=true"):
+    with pytest.raises(ConfigurationError, match="requires SOCRATIC_PARTNER_TEST_MODE=true"):
         Settings.from_environment(environment, env_file=None)

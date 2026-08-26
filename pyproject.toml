@@ -3,7 +3,7 @@ requires = ["hatchling>=1.26"]
 build-backend = "hatchling.build"
 
 [project]
-name = "sparring-partner"
+name = "socratic-partner"
 version = "0.1.0.dev0"
 description = "A conversational AI that challenges assumptions and clarifies decisions."
 readme = "README.md"
@@ -21,10 +21,10 @@ dev = [
 ]
 
 [project.scripts]
-sparring-partner = "sparring_partner.main:main"
+socratic-partner = "socratic_partner.main:main"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/sparring_partner"]
+packages = ["src/socratic_partner"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -3,7 +3,7 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from sparring_partner.store import ApplicationStatus, StateStore
+from socratic_partner.store import ApplicationStatus, StateStore
 
 
 def test_initializes_waiting_state(tmp_path) -> None:

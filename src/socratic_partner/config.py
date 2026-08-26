@@ -44,26 +44,26 @@ class Settings:
         guild_id = _required_positive_int(environment, "DISCORD_GUILD_ID")
         channel_id = _required_positive_int(environment, "DISCORD_TEST_CHANNEL_ID")
         user_id = _required_positive_int(environment, "DISCORD_ALLOWED_USER_ID")
-        test_mode = _parse_bool(environment.get("SPARRING_PARTNER_TEST_MODE", "true"))
-        log_level = environment.get("SPARRING_PARTNER_LOG_LEVEL", "INFO").strip().upper()
+        test_mode = _parse_bool(environment.get("SOCRATIC_PARTNER_TEST_MODE", "true"))
+        log_level = environment.get("SOCRATIC_PARTNER_LOG_LEVEL", "INFO").strip().upper()
         database_path_value = environment.get(
-            "SPARRING_PARTNER_DATABASE_PATH", "data/sparring_partner.sqlite3"
+            "SOCRATIC_PARTNER_DATABASE_PATH", "data/socratic_partner.sqlite3"
         ).strip()
         database_path = Path(database_path_value)
         default_interval_hours = _positive_int_with_default(
-            environment, "SPARRING_PARTNER_DEFAULT_INTERVAL_HOURS", default=24
+            environment, "SOCRATIC_PARTNER_DEFAULT_INTERVAL_HOURS", default=24
         )
 
         if not test_mode:
             raise ConfigurationError(
-                "The first development increment requires SPARRING_PARTNER_TEST_MODE=true."
+                "The first development increment requires SOCRATIC_PARTNER_TEST_MODE=true."
             )
         if log_level not in _VALID_LOG_LEVELS:
             raise ConfigurationError(
-                f"SPARRING_PARTNER_LOG_LEVEL must be one of {sorted(_VALID_LOG_LEVELS)}."
+                f"SOCRATIC_PARTNER_LOG_LEVEL must be one of {sorted(_VALID_LOG_LEVELS)}."
             )
         if not database_path_value:
-            raise ConfigurationError("SPARRING_PARTNER_DATABASE_PATH cannot be empty.")
+            raise ConfigurationError("SOCRATIC_PARTNER_DATABASE_PATH cannot be empty.")
 
         return cls(
             discord_bot_token=token,

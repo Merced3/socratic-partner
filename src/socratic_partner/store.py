@@ -1,4 +1,4 @@
-"""SQLite-backed operational state for Sparring Partner."""
+"""SQLite-backed operational state for Socratic Partner."""
 
 from __future__ import annotations
 

@@ -1,5 +1,5 @@
-import sparring_partner
+import socratic_partner
 
 
 def test_package_exposes_version() -> None:
-    assert sparring_partner.__version__
+    assert socratic_partner.__version__

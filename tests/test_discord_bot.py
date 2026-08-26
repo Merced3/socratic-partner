@@ -1,7 +1,7 @@
 from pathlib import Path
 
-from sparring_partner.config import Settings
-from sparring_partner.discord_bot import is_authorized
+from socratic_partner.config import Settings
+from socratic_partner.discord_bot import is_authorized
 
 SETTINGS = Settings(
     discord_bot_token="test-token",

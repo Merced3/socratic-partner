@@ -80,7 +80,7 @@ class SparringPartnerBot(commands.Bot):
         return False
 
     def _register_commands(self) -> None:
-        @self.tree.command(name="status", description="Show Sparring Partner runtime status.")
+        @self.tree.command(name="status", description="Show Socratic Partner runtime status.")
         async def status(interaction: discord.Interaction) -> None:
             if not await self._require_authorized(interaction):
                 return
@@ -91,7 +91,7 @@ class SparringPartnerBot(commands.Bot):
             await interaction.response.send_message(
                 "\n".join(
                     (
-                        "**Sparring Partner — development status**",
+                        "**Socratic Partner — development status**",
                         f"- Version: `{__version__}`",
                         "- Mode: `test`",
                         f"- State: `{state.status}`",
@@ -107,14 +107,14 @@ class SparringPartnerBot(commands.Bot):
                 ephemeral=True,
             )
 
-        @self.tree.command(name="pause", description="Pause future Sparring Partner activation.")
+        @self.tree.command(name="pause", description="Pause future Socratic Partner activation.")
         async def pause(interaction: discord.Interaction) -> None:
             if not await self._require_authorized(interaction):
                 return
 
             state = self.store.pause()
             await interaction.response.send_message(
-                f"Sparring Partner is now **{state.status}**. The saved activation was cleared.",
+                f"Socratic Partner is now **{state.status}**. The saved activation was cleared.",
                 ephemeral=True,
             )
 
@@ -127,7 +127,7 @@ class SparringPartnerBot(commands.Bot):
             await interaction.response.send_message(
                 " ".join(
                     (
-                        f"Sparring Partner is now **{state.status}**.",
+                        f"Socratic Partner is now **{state.status}**.",
                         f"Planned activation: {_format_next_activation(state)}.",
                         "The scheduler is not implemented yet.",
                     )
