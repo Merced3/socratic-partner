@@ -1,0 +1,39 @@
+[build-system]
+requires = ["hatchling>=1.26"]
+build-backend = "hatchling.build"
+
+[project]
+name = "sparring-partner"
+version = "0.1.0.dev0"
+description = "A conversational AI that challenges assumptions and clarifies decisions."
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+  "discord.py>=2.5,<3",
+  "python-dotenv>=1.0,<2",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8,<9",
+  "pytest-asyncio>=0.24,<1",
+  "ruff>=0.9,<1",
+]
+
+[project.scripts]
+sparring-partner = "sparring_partner.main:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/sparring_partner"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"
+asyncio_mode = "auto"
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]

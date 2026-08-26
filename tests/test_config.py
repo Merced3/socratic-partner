@@ -1,0 +1,43 @@
+import pytest
+
+from sparring_partner.config import ConfigurationError, Settings
+
+VALID_ENVIRONMENT = {
+    "DISCORD_BOT_TOKEN": "test-token",
+    "DISCORD_GUILD_ID": "100",
+    "DISCORD_TEST_CHANNEL_ID": "200",
+    "DISCORD_ALLOWED_USER_ID": "300",
+    "SPARRING_PARTNER_TEST_MODE": "true",
+    "SPARRING_PARTNER_LOG_LEVEL": "INFO",
+}
+
+
+def test_loads_valid_environment() -> None:
+    settings = Settings.from_environment(VALID_ENVIRONMENT, env_file=None)
+
+    assert settings.discord_bot_token == "test-token"
+    assert settings.discord_guild_id == 100
+    assert settings.discord_test_channel_id == 200
+    assert settings.discord_allowed_user_id == 300
+    assert settings.test_mode is True
+
+
+def test_rejects_missing_secret() -> None:
+    environment = {**VALID_ENVIRONMENT, "DISCORD_BOT_TOKEN": ""}
+
+    with pytest.raises(ConfigurationError, match="DISCORD_BOT_TOKEN is required"):
+        Settings.from_environment(environment, env_file=None)
+
+
+def test_rejects_non_numeric_identifier() -> None:
+    environment = {**VALID_ENVIRONMENT, "DISCORD_GUILD_ID": "not-an-id"}
+
+    with pytest.raises(ConfigurationError, match="DISCORD_GUILD_ID must be an integer"):
+        Settings.from_environment(environment, env_file=None)
+
+
+def test_rejects_non_test_mode_during_first_increment() -> None:
+    environment = {**VALID_ENVIRONMENT, "SPARRING_PARTNER_TEST_MODE": "false"}
+
+    with pytest.raises(ConfigurationError, match="requires SPARRING_PARTNER_TEST_MODE=true"):
+        Settings.from_environment(environment, env_file=None)
