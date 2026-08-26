@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 
 from .config import ConfigurationError, Settings
 from .discord_bot import create_bot
+from .pi_rpc import PiRpcClient
 from .store import StateStore
 
 
@@ -28,7 +30,16 @@ def main() -> None:
         default_interval_seconds=settings.default_interval_seconds,
     )
     store.initialize()
-    bot = create_bot(settings, store)
+    state = store.get_state()
+    pi_client = PiRpcClient(
+        executable=settings.pi_executable,
+        working_directory=Path.cwd().resolve(),
+        session_directory=settings.pi_session_directory.resolve(),
+        session_file=state.pi_session_file,
+        model=settings.pi_model,
+        timeout_seconds=settings.pi_timeout_seconds,
+    )
+    bot = create_bot(settings, store, pi_client)
     bot.run(settings.discord_bot_token, log_handler=None)
 
 

@@ -27,6 +27,10 @@ class Settings:
     log_level: str
     database_path: Path
     default_interval_seconds: int
+    pi_executable: str
+    pi_session_directory: Path
+    pi_model: str | None
+    pi_timeout_seconds: int
 
     @classmethod
     def from_environment(
@@ -53,6 +57,14 @@ class Settings:
         default_interval_hours = _positive_int_with_default(
             environment, "SOCRATIC_PARTNER_DEFAULT_INTERVAL_HOURS", default=24
         )
+        pi_executable = environment.get("SOCRATIC_PARTNER_PI_EXECUTABLE", "pi").strip()
+        pi_session_directory_value = environment.get(
+            "SOCRATIC_PARTNER_PI_SESSION_DIRECTORY", "data/pi-sessions"
+        ).strip()
+        pi_model = environment.get("SOCRATIC_PARTNER_PI_MODEL", "").strip() or None
+        pi_timeout_seconds = _positive_int_with_default(
+            environment, "SOCRATIC_PARTNER_PI_TIMEOUT_SECONDS", default=120
+        )
 
         if not test_mode:
             raise ConfigurationError(
@@ -64,6 +76,10 @@ class Settings:
             )
         if not database_path_value:
             raise ConfigurationError("SOCRATIC_PARTNER_DATABASE_PATH cannot be empty.")
+        if not pi_executable:
+            raise ConfigurationError("SOCRATIC_PARTNER_PI_EXECUTABLE cannot be empty.")
+        if not pi_session_directory_value:
+            raise ConfigurationError("SOCRATIC_PARTNER_PI_SESSION_DIRECTORY cannot be empty.")
 
         return cls(
             discord_bot_token=token,
@@ -74,6 +90,10 @@ class Settings:
             log_level=log_level,
             database_path=database_path,
             default_interval_seconds=default_interval_hours * 60 * 60,
+            pi_executable=pi_executable,
+            pi_session_directory=Path(pi_session_directory_value),
+            pi_model=pi_model,
+            pi_timeout_seconds=pi_timeout_seconds,
         )
 
 

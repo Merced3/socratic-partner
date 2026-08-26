@@ -54,6 +54,35 @@ def test_resume_starts_fresh_interval_and_survives_restart(tmp_path) -> None:
     assert restarted_state == state
 
 
+def test_records_agent_runtime_and_clears_previous_error(tmp_path) -> None:
+    store = StateStore(tmp_path / "state.sqlite3", default_interval_seconds=86_400)
+    store.initialize()
+    failed_at = datetime(2026, 8, 25, 12, 0, tzinfo=UTC)
+    store.record_agent_error("temporary failure", now=failed_at)
+
+    completed_at = datetime(2026, 8, 25, 12, 5, tzinfo=UTC)
+    state = store.record_agent_success(
+        session_id="session-123",
+        session_file="C:/sessions/session.jsonl",
+        provider="test-provider",
+        model_id="test-model",
+        input_tokens=120,
+        output_tokens=15,
+        cost=0.0042,
+        now=completed_at,
+    )
+
+    assert state.pi_session_id == "session-123"
+    assert state.pi_session_file == "C:/sessions/session.jsonl"
+    assert state.last_agent_call_at == completed_at
+    assert state.last_provider == "test-provider"
+    assert state.last_model_id == "test-model"
+    assert state.last_input_tokens == 120
+    assert state.last_output_tokens == 15
+    assert state.last_cost == pytest.approx(0.0042)
+    assert state.last_error is None
+
+
 def test_rejects_naive_operation_timestamp(tmp_path) -> None:
     store = StateStore(tmp_path / "state.sqlite3", default_interval_seconds=86_400)
     store.initialize()

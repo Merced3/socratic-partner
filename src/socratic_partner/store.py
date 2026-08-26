@@ -10,7 +10,7 @@ from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from pathlib import Path
 
-_SCHEMA_VERSION = 1
+_SCHEMA_VERSION = 2
 _SINGLETON_ID = 1
 
 
@@ -25,6 +25,14 @@ class ApplicationState:
     interval_seconds: int
     next_question_at: datetime | None
     last_error: str | None
+    pi_session_id: str | None
+    pi_session_file: str | None
+    last_agent_call_at: datetime | None
+    last_provider: str | None
+    last_model_id: str | None
+    last_input_tokens: int
+    last_output_tokens: int
+    last_cost: float
     created_at: datetime
     updated_at: datetime
 
@@ -48,13 +56,18 @@ class StateStore:
                 )
             if version == 0:
                 self._migrate_to_version_1(connection)
+                version = 1
+            if version == 1:
+                self._migrate_to_version_2(connection)
 
     def get_state(self) -> ApplicationState:
         with self._connection() as connection:
             row = connection.execute(
                 """
                 SELECT status, interval_seconds, next_question_at, last_error,
-                       created_at, updated_at
+                       pi_session_id, pi_session_file, last_agent_call_at,
+                       last_provider, last_model_id, last_input_tokens,
+                       last_output_tokens, last_cost, created_at, updated_at
                 FROM application_state
                 WHERE id = ?
                 """,
@@ -102,6 +115,59 @@ class StateStore:
             )
         return self.get_state()
 
+    def record_agent_success(
+        self,
+        *,
+        session_id: str,
+        session_file: str | None,
+        provider: str | None,
+        model_id: str | None,
+        input_tokens: int,
+        output_tokens: int,
+        cost: float,
+        now: datetime | None = None,
+    ) -> ApplicationState:
+        timestamp = _as_utc(now or datetime.now(UTC))
+        with self._connection() as connection:
+            connection.execute(
+                """
+                UPDATE application_state
+                SET pi_session_id = ?, pi_session_file = ?, last_agent_call_at = ?,
+                    last_provider = ?, last_model_id = ?, last_input_tokens = ?,
+                    last_output_tokens = ?, last_cost = ?, last_error = NULL,
+                    updated_at = ?
+                WHERE id = ?
+                """,
+                (
+                    session_id,
+                    session_file,
+                    timestamp.isoformat(),
+                    provider,
+                    model_id,
+                    input_tokens,
+                    output_tokens,
+                    cost,
+                    timestamp.isoformat(),
+                    _SINGLETON_ID,
+                ),
+            )
+        return self.get_state()
+
+    def record_agent_error(
+        self, error: str, *, now: datetime | None = None
+    ) -> ApplicationState:
+        timestamp = _as_utc(now or datetime.now(UTC))
+        with self._connection() as connection:
+            connection.execute(
+                """
+                UPDATE application_state
+                SET last_error = ?, updated_at = ?
+                WHERE id = ?
+                """,
+                (error, timestamp.isoformat(), _SINGLETON_ID),
+            )
+        return self.get_state()
+
     @contextmanager
     def _connection(self) -> Iterator[sqlite3.Connection]:
         connection = sqlite3.connect(self.database_path, timeout=5)
@@ -144,7 +210,22 @@ class StateStore:
                 timestamp,
             ),
         )
-        connection.execute(f"PRAGMA user_version = {_SCHEMA_VERSION}")
+        connection.execute("PRAGMA user_version = 1")
+
+    def _migrate_to_version_2(self, connection: sqlite3.Connection) -> None:
+        columns = (
+            "pi_session_id TEXT",
+            "pi_session_file TEXT",
+            "last_agent_call_at TEXT",
+            "last_provider TEXT",
+            "last_model_id TEXT",
+            "last_input_tokens INTEGER NOT NULL DEFAULT 0",
+            "last_output_tokens INTEGER NOT NULL DEFAULT 0",
+            "last_cost REAL NOT NULL DEFAULT 0",
+        )
+        for definition in columns:
+            connection.execute(f"ALTER TABLE application_state ADD COLUMN {definition}")
+        connection.execute("PRAGMA user_version = 2")
 
 
 def _state_from_row(row: sqlite3.Row) -> ApplicationState:
@@ -153,6 +234,14 @@ def _state_from_row(row: sqlite3.Row) -> ApplicationState:
         interval_seconds=row["interval_seconds"],
         next_question_at=_parse_datetime(row["next_question_at"]),
         last_error=row["last_error"],
+        pi_session_id=row["pi_session_id"],
+        pi_session_file=row["pi_session_file"],
+        last_agent_call_at=_parse_datetime(row["last_agent_call_at"]),
+        last_provider=row["last_provider"],
+        last_model_id=row["last_model_id"],
+        last_input_tokens=row["last_input_tokens"],
+        last_output_tokens=row["last_output_tokens"],
+        last_cost=row["last_cost"],
         created_at=_parse_required_datetime(row["created_at"]),
         updated_at=_parse_required_datetime(row["updated_at"]),
     )

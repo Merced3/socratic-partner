@@ -12,6 +12,10 @@ SETTINGS = Settings(
     log_level="INFO",
     database_path=Path("data/test.sqlite3"),
     default_interval_seconds=24 * 60 * 60,
+    pi_executable="pi",
+    pi_session_directory=Path("data/pi-sessions"),
+    pi_model=None,
+    pi_timeout_seconds=120,
 )
 
 

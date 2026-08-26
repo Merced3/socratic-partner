@@ -10,6 +10,7 @@ from discord.ext import commands
 
 from . import __version__
 from .config import Settings
+from .pi_rpc import PiRpcClient, PiRpcError
 from .store import ApplicationState, StateStore
 
 logger = logging.getLogger(__name__)
@@ -34,12 +35,15 @@ def is_authorized(
 class SparringPartnerBot(commands.Bot):
     """Discord bot restricted to one development guild, channel, and user."""
 
-    def __init__(self, settings: Settings, store: StateStore) -> None:
+    def __init__(
+        self, settings: Settings, store: StateStore, pi_client: PiRpcClient
+    ) -> None:
         intents = discord.Intents.none()
         intents.guilds = True
         super().__init__(command_prefix=commands.when_mentioned, intents=intents)
         self.settings = settings
         self.store = store
+        self.pi_client = pi_client
         self._commands_synced = False
         self._register_commands()
 
@@ -56,6 +60,7 @@ class SparringPartnerBot(commands.Bot):
         logger.info("Connected to Discord as %s (%s).", self.user, self.user.id)
 
     async def close(self) -> None:
+        await self.pi_client.close()
         logger.info("Closing Discord connection.")
         await super().close()
 
@@ -100,8 +105,58 @@ class SparringPartnerBot(commands.Bot):
                         f"- Discord: `connected` ({latency_ms} ms)",
                         f"- Commands: `{command_state}`",
                         "- Persistence: `ready`",
-                        "- Agent runtime: `not implemented`",
+                        f"- Agent runtime: `{_format_agent_runtime(self.pi_client)}`",
+                        f"- Pi session: `{_format_session(state)}`",
+                        f"- Model: `{_format_model(state)}`",
+                        f"- Last agent call: {_format_last_agent_call(state)}",
+                        f"- Last recorded cost: `${state.last_cost:.6f}`",
+                        f"- Last error: `{state.last_error or 'none'}`",
                         "- Scheduler: `not running`",
+                    )
+                ),
+                ephemeral=True,
+            )
+
+        @self.tree.command(name="ask-test", description="Run a safe Pi connectivity test.")
+        async def ask_test(interaction: discord.Interaction) -> None:
+            if not await self._require_authorized(interaction):
+                return
+
+            await interaction.response.defer(ephemeral=True, thinking=True)
+            try:
+                result = await self.pi_client.prompt(
+                    "This is a Socratic Partner connectivity test. Reply with one short "
+                    "sentence confirming that you can reason conversationally. Do not use tools."
+                )
+                self.store.record_agent_success(
+                    session_id=result.session_id,
+                    session_file=result.session_file,
+                    provider=result.provider,
+                    model_id=result.model_id,
+                    input_tokens=result.input_tokens,
+                    output_tokens=result.output_tokens,
+                    cost=result.cost,
+                )
+            except PiRpcError as exc:
+                logger.exception("Pi connectivity test failed.")
+                self.store.record_agent_error(str(exc))
+                await interaction.followup.send(
+                    "Pi could not complete the test. Check the local logs and `/status`.",
+                    ephemeral=True,
+                )
+                return
+
+            response = result.text
+            if len(response) > 1_800:
+                response = f"{response[:1_797]}..."
+            await interaction.followup.send(
+                "\n".join(
+                    (
+                        "**Pi connectivity test passed**",
+                        response,
+                        "",
+                        f"Session: `{result.session_id[:12]}`",
+                        f"Model: `{result.provider or 'unknown'}/{result.model_id or 'unknown'}`",
                     )
                 ),
                 ephemeral=True,
@@ -163,7 +218,31 @@ def _format_next_activation(state: ApplicationState) -> str:
     return f"{absolute} ({relative})"
 
 
-def create_bot(settings: Settings, store: StateStore) -> SparringPartnerBot:
-    bot = SparringPartnerBot(settings, store)
+def _format_agent_runtime(pi_client: PiRpcClient) -> str:
+    return "running" if pi_client.is_running else "ready (starts on demand)"
+
+
+def _format_session(state: ApplicationState) -> str:
+    return state.pi_session_id[:12] if state.pi_session_id else "not created"
+
+
+def _format_model(state: ApplicationState) -> str:
+    if state.last_provider and state.last_model_id:
+        return f"{state.last_provider}/{state.last_model_id}"
+    return "not recorded"
+
+
+def _format_last_agent_call(state: ApplicationState) -> str:
+    if state.last_agent_call_at is None:
+        return "`never`"
+    absolute = discord.utils.format_dt(state.last_agent_call_at, style="F")
+    relative = discord.utils.format_dt(state.last_agent_call_at, style="R")
+    return f"{absolute} ({relative})"
+
+
+def create_bot(
+    settings: Settings, store: StateStore, pi_client: PiRpcClient
+) -> SparringPartnerBot:
+    bot = SparringPartnerBot(settings, store, pi_client)
     bot.tree.on_error = on_app_command_error
     return bot

@@ -22,6 +22,10 @@ def test_loads_valid_environment() -> None:
     assert settings.test_mode is True
     assert settings.database_path.as_posix() == "data/socratic_partner.sqlite3"
     assert settings.default_interval_seconds == 24 * 60 * 60
+    assert settings.pi_executable == "pi"
+    assert settings.pi_session_directory.as_posix() == "data/pi-sessions"
+    assert settings.pi_model is None
+    assert settings.pi_timeout_seconds == 120
 
 
 def test_rejects_missing_secret() -> None:
