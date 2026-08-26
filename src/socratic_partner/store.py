@@ -102,6 +102,19 @@ class StateStore:
             raise RuntimeError("Application state is missing; initialize the store first.")
         return _state_from_row(row)
 
+    def get_conversation(self, conversation_id: str) -> Conversation | None:
+        with self._connection() as connection:
+            row = connection.execute(
+                """
+                SELECT id, status, channel_id, question_message_id, session_card,
+                       started_at, completed_at, updated_at
+                FROM conversations
+                WHERE id = ?
+                """,
+                (conversation_id,),
+            ).fetchone()
+        return _conversation_from_row(row) if row is not None else None
+
     def get_active_conversation(self) -> Conversation | None:
         with self._connection() as connection:
             row = connection.execute(

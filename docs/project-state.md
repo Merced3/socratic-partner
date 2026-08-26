@@ -3,8 +3,7 @@
 ## Known-good baseline
 
 - Branch: `main`
-- Runtime commit: `e92f724 Prevent Pi RPC history timeouts`
-- Documentation baseline: `d1034ef Document architecture and development safeguards`
+- Current known-good revision: latest live-accepted commit on `main` (see `git log`)
 - SQLite schema: version 4
 - Scheduler: not implemented and not running
 - Automatic activation: not implemented
@@ -26,6 +25,7 @@
 - Pi RPC recovery after reader/protocol timeout without fetching complete message history
 - Billing/authentication failures pause future automation state
 - Interval persistence across restart
+- Public `SocraticApplication` service used by Discord for start, reply, and completion
 
 ## Preserved rollback
 
@@ -43,15 +43,16 @@ The scheduler experiment migrated the private runtime database from schema 4 to 
 
 ## Test status
 
-- Automated suite at runtime baseline: 39 passing tests
-- Manual `/ask-test` and `/ask-now` acceptance passed after the RPC history-timeout fix
+- Automated suite: 45 passing tests
+- Full manual acceptance passed after the application-service refactor: `/status`, `/ask-test`, `/ask-now`, reply, restart, reply, `/done`, session card, `/interval`, `/pause`, and `/resume`
 - Existing suite audit is recorded in `tests/CONTRACTS.md`
 - Test rationale is documented at useful test/group granularity
-- Complete automated conversation/restart black-box coverage remains a v0.09 prerequisite
+- Public application workflow coverage now exercises start, reply, reconstruction, continuation, completion, session-card storage, and next-interval timing with real temporary SQLite
+- Real Discord/provider/process behavior remains a bounded manual acceptance path
 
 ## Next milestone
 
-Design a deliberately small automatic scheduler behind a default-off feature flag. Before implementation, read `docs/automatic-scheduler.md` and obtain explicit approval.
+Finish the remaining high-value boundary work in `tests/CONTRACTS.md`—schema upgrade fixtures and a fake Pi RPC subprocess contract—then design a deliberately small automatic scheduler behind a default-off feature flag. Read `docs/automatic-scheduler.md` and obtain explicit approval before implementation.
 
 ## Definition of v0.09
 

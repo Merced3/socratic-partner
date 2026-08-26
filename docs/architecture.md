@@ -55,10 +55,17 @@ A small composition layer necessarily knows how to register the application oper
 
 ### Socratic application behavior
 
+`SocraticApplication` is the public application-service boundary between interaction adapters
+and infrastructure. It:
+
 - Owns prompts and conversation lifecycle.
 - Starts a fresh Pi session for each new conversation.
+- Coordinates model output, durable state, and a narrow message port.
 - Produces a provisional card on `/done`.
 - Determines application-specific error behavior.
+
+Discord delegates conversation operations to this service. Tests can use the same public
+operations with real temporary SQLite and controlled agent/message ports.
 
 ### Pi RPC client
 

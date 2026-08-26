@@ -3,20 +3,27 @@
 from __future__ import annotations
 
 import logging
-import sqlite3
 from contextlib import suppress
-from uuid import uuid4
 
 import discord
 from discord import app_commands
 from discord.ext import commands
 
 from . import __version__
+from .application import (
+    AgentRequestFailed,
+    ConversationAlreadyOpen,
+    ConversationNotOpen,
+    MessageDeliveryFailed,
+    NoActiveConversation,
+    SocraticApplication,
+    StatePersistenceFailed,
+    WrongConversationChannel,
+)
 from .config import Settings
 from .errors import ClassifiedError, classify_error
 from .pi_rpc import PiRpcClient, PiRpcError, PiRunResult
-from .prompts import OPENING_PROMPT, SESSION_CARD_PROMPT
-from .store import ApplicationState, ConversationStatus, StateStore
+from .store import ApplicationState, StateStore
 
 logger = logging.getLogger(__name__)
 
@@ -51,6 +58,12 @@ class SocraticPartnerBot(commands.Bot):
         self.settings = settings
         self.store = store
         self.pi_client = pi_client
+        self._messenger = _DiscordConversationMessenger(self)
+        self.conversation_service = SocraticApplication(
+            store=store,
+            agent=pi_client,
+            messenger=self._messenger,
+        )
         self._commands_synced = False
         self._register_commands()
 
@@ -82,25 +95,24 @@ class SocraticPartnerBot(commands.Bot):
         ):
             return
 
-        conversation = self.store.get_active_conversation()
-        if conversation is None or conversation.status is not ConversationStatus.OPEN:
-            return
-        if conversation.channel_id != message.channel.id:
-            return
-
         try:
             async with message.channel.typing():
-                result = await self.pi_client.prompt(message.content.strip())
-            self._record_agent_result(result)
-            await _reply_in_chunks(message, result.text)
-        except PiRpcError as exc:
+                await self.conversation_service.reply(
+                    channel_id=message.channel.id,
+                    reference=message,
+                    text=message.content,
+                )
+        except (NoActiveConversation, WrongConversationChannel, ConversationNotOpen):
+            return
+        except AgentRequestFailed as exc:
             logger.exception("Socratic conversation turn failed.")
-            failure = self._record_agent_failure(exc)
             with suppress(discord.HTTPException):
                 await message.reply(
-                    f"**Agent request failed**\n{failure.discord_message()}",
+                    f"**Agent request failed**\n{exc.failure.discord_message()}",
                     mention_author=False,
                 )
+        except MessageDeliveryFailed:
+            logger.exception("Could not deliver Socratic conversation response.")
 
     async def close(self) -> None:
         await self.pi_client.close()
@@ -218,12 +230,6 @@ class SocraticPartnerBot(commands.Bot):
         async def ask_now(interaction: discord.Interaction) -> None:
             if not await self._require_authorized(interaction):
                 return
-            if self.store.get_active_conversation() is not None:
-                await interaction.response.send_message(
-                    "A Socratic conversation is already open. Use `/done` before starting another.",
-                    ephemeral=True,
-                )
-                return
             if interaction.channel is None:
                 await interaction.response.send_message(
                     "The configured conversation channel is unavailable.", ephemeral=True
@@ -240,27 +246,23 @@ class SocraticPartnerBot(commands.Bot):
 
             await interaction.response.defer(ephemeral=True, thinking=True)
             try:
-                await self.pi_client.new_session()
-                result = await self.pi_client.prompt(OPENING_PROMPT)
-                self._record_agent_result(result)
-                question_message = await interaction.channel.send(
-                    _truncate_discord_message(result.text)
+                await self.conversation_service.start_conversation(
+                    channel_id=interaction.channel.id
                 )
-                self.store.start_conversation(
-                    conversation_id=uuid4().hex,
-                    channel_id=interaction.channel.id,
-                    question_message_id=question_message.id,
-                )
-            except PiRpcError as exc:
-                logger.exception("Could not start Socratic conversation.")
-                failure = self._record_agent_failure(exc)
+            except ConversationAlreadyOpen:
                 await interaction.followup.send(
-                    failure.discord_message(), ephemeral=True
+                    "A Socratic conversation is already open. Use `/done` before starting another.",
+                    ephemeral=True,
                 )
                 return
-            except (discord.HTTPException, sqlite3.IntegrityError) as exc:
+            except AgentRequestFailed as exc:
+                logger.exception("Could not start Socratic conversation.")
+                await interaction.followup.send(
+                    exc.failure.discord_message(), ephemeral=True
+                )
+                return
+            except (MessageDeliveryFailed, StatePersistenceFailed):
                 logger.exception("Could not persist or deliver Socratic conversation.")
-                self.store.record_agent_error(str(exc), kind="infrastructure")
                 await interaction.followup.send(
                     "The conversation could not be delivered or saved. Check `/status` and the "
                     "local logs.",
@@ -278,54 +280,43 @@ class SocraticPartnerBot(commands.Bot):
         async def done(interaction: discord.Interaction) -> None:
             if not await self._require_authorized(interaction):
                 return
-            conversation = self.store.get_active_conversation()
-            if conversation is None:
-                await interaction.response.send_message(
+            await interaction.response.defer(ephemeral=True, thinking=True)
+            if interaction.channel_id is None:
+                await interaction.followup.send(
+                    "The conversation channel is unavailable.", ephemeral=True
+                )
+                return
+            try:
+                completed = await self.conversation_service.complete_conversation(
+                    channel_id=interaction.channel_id
+                )
+            except NoActiveConversation:
+                await interaction.followup.send(
                     "There is no active Socratic conversation.", ephemeral=True
                 )
                 return
-            if conversation.channel_id != interaction.channel_id:
-                await interaction.response.send_message(
+            except WrongConversationChannel:
+                await interaction.followup.send(
                     "The active conversation belongs to another channel.", ephemeral=True
                 )
                 return
-
-            await interaction.response.defer(ephemeral=True, thinking=True)
-            if conversation.status is ConversationStatus.CLOSING:
-                conversation = self.store.reopen_conversation(conversation.id)
-            self.store.mark_conversation_closing(conversation.id)
-            try:
-                result = await self.pi_client.prompt(SESSION_CARD_PROMPT)
-                self._record_agent_result(result)
-                if interaction.channel is None:
-                    raise RuntimeError("Conversation channel became unavailable.")
-                await interaction.channel.send(
-                    _truncate_discord_message(
-                        f"**Provisional session card**\n{result.text}"
-                    )
-                )
-                state = self.store.complete_conversation(
-                    conversation.id, session_card=result.text
-                )
-            except PiRpcError as exc:
+            except AgentRequestFailed as exc:
                 logger.exception("Could not complete Socratic conversation.")
-                failure = self._record_agent_failure(exc)
-                self.store.reopen_conversation(conversation.id)
                 await interaction.followup.send(
-                    failure.discord_message()
+                    exc.failure.discord_message()
                     + " The conversation remains open; retry `/done` when ready.",
                     ephemeral=True,
                 )
                 return
-            except (discord.HTTPException, RuntimeError) as exc:
+            except (MessageDeliveryFailed, StatePersistenceFailed):
                 logger.exception("Could not deliver or persist conversation closure.")
-                self.store.record_agent_error(str(exc), kind="infrastructure")
-                self.store.reopen_conversation(conversation.id)
                 await interaction.followup.send(
                     "The conversation could not be closed safely and remains open. Retry `/done`.",
                     ephemeral=True,
                 )
                 return
+
+            state = completed.state
 
             await interaction.followup.send(
                 "Conversation closed. The next interval begins from this completion point: "
@@ -401,6 +392,31 @@ class SocraticPartnerBot(commands.Bot):
             pause_automation=failure.should_pause_automation,
         )
         return failure
+
+
+class _DiscordConversationMessenger:
+    """Translate the application's narrow message port into Discord operations."""
+
+    def __init__(self, bot: SocraticPartnerBot) -> None:
+        self.bot = bot
+
+    async def send(self, channel_id: int, text: str) -> int:
+        try:
+            channel = self.bot.get_channel(channel_id)
+            if channel is None:
+                channel = await self.bot.fetch_channel(channel_id)
+            message = await channel.send(_truncate_discord_message(text))
+        except (discord.HTTPException, AttributeError) as exc:
+            raise MessageDeliveryFailed(str(exc)) from exc
+        return message.id
+
+    async def reply(self, reference: object, text: str) -> None:
+        if not isinstance(reference, discord.Message):
+            raise MessageDeliveryFailed("Discord reply reference was not a message.")
+        try:
+            await _reply_in_chunks(reference, text)
+        except discord.HTTPException as exc:
+            raise MessageDeliveryFailed(str(exc)) from exc
 
 
 async def on_app_command_error(
