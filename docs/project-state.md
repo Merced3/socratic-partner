@@ -43,16 +43,18 @@ The scheduler experiment migrated the private runtime database from schema 4 to 
 
 ## Test status
 
-- Automated suite: 45 passing tests
+- Automated suite: 53 passing tests
 - Full manual acceptance passed after the application-service refactor: `/status`, `/ask-test`, `/ask-now`, reply, restart, reply, `/done`, session card, `/interval`, `/pause`, and `/resume`
 - Existing suite audit is recorded in `tests/CONTRACTS.md`
 - Test rationale is documented at useful test/group granularity
-- Public application workflow coverage now exercises start, reply, reconstruction, continuation, completion, session-card storage, and next-interval timing with real temporary SQLite
+- Public application workflow coverage exercises start, reply, reconstruction, continuation, completion, session-card storage, and next-interval timing with real temporary SQLite
+- Historical SQLite fixtures verify that schemas 1, 2, and 3 migrate to schema 4 while preserving their public application state; the version 3 fixture also preserves a completed conversation and session card
+- A cross-platform fake Pi RPC subprocess exercises JSONL framing, oversized events, assistant errors, malformed output, timeout/reset, and successful client reuse after reset
 - Real Discord/provider/process behavior remains a bounded manual acceptance path
 
 ## Next milestone
 
-Finish the remaining high-value boundary work in `tests/CONTRACTS.md`—schema upgrade fixtures and a fake Pi RPC subprocess contract—then design a deliberately small automatic scheduler behind a default-off feature flag. Read `docs/automatic-scheduler.md` and obtain explicit approval before implementation.
+Review `docs/automatic-scheduler.md` and design a deliberately small automatic scheduler behind a default-off feature flag. Obtain explicit approval before implementation and use a feature branch for autonomous/background behavior.
 
 ## Definition of v0.09
 
