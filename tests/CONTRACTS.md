@@ -13,9 +13,10 @@ This matrix records what evidence exists, its level, and important gaps. “Manu
 | `/done` stores a card and starts timing from completion | Store lifecycle + `test_complete_conversation_workflow_survives_application_reconstruction` | SQLite integration + application black box | Real Discord/Pi path remains manual |
 | Paused completion cannot schedule future work | `test_paused_completion_does_not_schedule_next_question` | Real SQLite integration | None at storage boundary |
 | Billing/auth failures pause future activation | `test_errors.py`, `test_billing_error_pauses_automation` | Unit + SQLite integration | Confirmed Discord notification is not automated |
-| Pi assistant errors are never accepted as answers | `test_rejects_settled_assistant_error` | White-box protocol regression | Replace/supplement with fake RPC subprocess contract |
-| Growing Pi sessions do not require full-history retrieval | `test_prompt_does_not_request_complete_message_history` | White-box regression | Add fake RPC subprocess and oversized-event scenario |
-| Pi timeout/reader failure is visible and recoverable | `test_settle_timeout_resets_process`, `test_reader_failure_event_is_reported` | White-box fault injection + manual acceptance | Automate successful next operation after reset |
+| Pi assistant errors are never accepted as answers | Unit regression + `test_fake_subprocess_rejects_assistant_errors` | Unit + fake-subprocess contract | Real provider error path remains manual |
+| Growing Pi sessions do not require full-history retrieval | Command regression + `test_fake_subprocess_honors_jsonl_framing_and_large_events` | White-box regression + fake-subprocess contract | Real growing Pi session remains manual |
+| Pi malformed output does not corrupt the next valid exchange | `test_fake_subprocess_recovers_after_malformed_output` | Fake-subprocess contract | Real Pi malformed-output behavior is not induced |
+| Pi timeout/reader failure is visible and recoverable | Focused fault tests + `test_fake_subprocess_timeout_resets_and_next_prompt_reuses_client` | White-box fault localization + fake-subprocess contract | Real Pi/provider timeout remains manual |
 | `/ask-test` completes through Discord and real Pi | Live acceptance after `e92f724` | Manual black-box | Optional bounded live suite; fake-RPC application test first |
 | `/ask-now` behavior posts a question and accepts normal replies | Application workflow test + live Discord acceptance | Automated application black box + manual external path | Thin Discord adapter remains manual |
 | Open conversation survives application reconstruction | Application workflow test + live process restart | Automated application black box + manual process test | Real Pi subprocess reconstruction remains manual |
@@ -24,14 +25,15 @@ This matrix records what evidence exists, its level, and important gaps. “Manu
 | Channel permission preflight prevents paid undeliverable work | Live regression after Discord 403 | Manual black-box | Controlled Discord adapter test |
 | Installed CLI starts and shuts down cleanly | Manual terminal use | Manual black-box | Add subprocess smoke test with injected fake adapters |
 | Package metadata is importable | `test_package.py` | Minimal smoke | Does not prove wheel/CLI installation |
-| Schema versions 1–3 upgrade to version 4 without data loss | None | Missing | Add fixture-based migration tests before another migration |
+| Schema versions 1–3 upgrade to version 4 without data loss | Historical fixtures in `test_store.py` preserve public state; v3 also preserves a completed conversation | Real temporary SQLite migration contract | Add new source-version fixtures before any future migration |
 | Start → reply → reconstruct → continue → complete works through public application operations | Application workflow test | Automated application black box | Real Discord/provider/process path remains bounded manual acceptance |
 
 ## Priority gaps before automatic scheduling
 
-1. Add schema 1→4, 2→4, and 3→4 preservation tests.
-2. Add a fake Pi RPC subprocess contract test, including a large event and timeout recovery.
-3. Add focused thin-adapter tests where they provide value without duplicating discord.py.
-4. Keep real Discord/provider testing opt-in and bounded; do not make CI depend on secrets, network availability, or model credits.
+The schema-upgrade and fake Pi RPC subprocess gaps are now covered by deterministic local
+contracts. Remaining useful evidence should stay bounded:
+
+1. Add focused thin-adapter tests where they provide value without duplicating discord.py.
+2. Keep real Discord/provider testing opt-in and bounded; do not make CI depend on secrets, network availability, or model credits.
 
 Update this matrix whenever evidence changes. Do not upgrade “manual” to “automated” merely because a lower-level mock passed.

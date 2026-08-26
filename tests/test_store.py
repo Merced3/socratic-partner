@@ -214,3 +214,166 @@ def test_rejects_newer_database_schema(tmp_path) -> None:
 
     with pytest.raises(RuntimeError, match="newer than supported"):
         store.initialize()
+
+
+_HISTORICAL_TIME = "2026-08-20T09:30:00+00:00"
+
+
+def _create_historical_database(database_path, version: int) -> None:
+    """Construct deployed schemas independently so migration tests cannot pass by self-copying."""
+    with sqlite3.connect(database_path) as connection:
+        connection.execute(
+            """
+            CREATE TABLE application_state (
+                id INTEGER PRIMARY KEY CHECK (id = 1),
+                status TEXT NOT NULL CHECK (status IN ('WAITING', 'PAUSED')),
+                interval_seconds INTEGER NOT NULL CHECK (interval_seconds > 0),
+                next_question_at TEXT,
+                last_error TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )
+            """
+        )
+        if version >= 2:
+            for definition in (
+                "pi_session_id TEXT",
+                "pi_session_file TEXT",
+                "last_agent_call_at TEXT",
+                "last_provider TEXT",
+                "last_model_id TEXT",
+                "last_input_tokens INTEGER NOT NULL DEFAULT 0",
+                "last_output_tokens INTEGER NOT NULL DEFAULT 0",
+                "last_cost REAL NOT NULL DEFAULT 0",
+            ):
+                connection.execute(f"ALTER TABLE application_state ADD COLUMN {definition}")
+        base_columns = (
+            "id, status, interval_seconds, next_question_at, last_error, created_at, updated_at"
+        )
+        base_values = (
+            1,
+            "PAUSED",
+            21_600,
+            None,
+            "preserved failure",
+            _HISTORICAL_TIME,
+            _HISTORICAL_TIME,
+        )
+        if version == 1:
+            placeholders = ", ".join("?" for _ in base_values)
+            connection.execute(
+                f"INSERT INTO application_state ({base_columns}) VALUES ({placeholders})",
+                base_values,
+            )
+        else:
+            runtime_columns = (
+                ", pi_session_id, pi_session_file, last_agent_call_at, last_provider, "
+                "last_model_id, last_input_tokens, last_output_tokens, last_cost"
+            )
+            runtime_values = (
+                "historical-session",
+                "sessions/historical.jsonl",
+                _HISTORICAL_TIME,
+                "historical-provider",
+                "historical-model",
+                321,
+                45,
+                0.125,
+            )
+            values = base_values + runtime_values
+            placeholders = ", ".join("?" for _ in values)
+            connection.execute(
+                f"INSERT INTO application_state ({base_columns}{runtime_columns}) "
+                f"VALUES ({placeholders})",
+                values,
+            )
+        if version >= 3:
+            connection.execute(
+                """
+                CREATE TABLE conversations (
+                    id TEXT PRIMARY KEY,
+                    status TEXT NOT NULL CHECK (status IN ('OPEN', 'CLOSING', 'COMPLETED')),
+                    channel_id INTEGER NOT NULL,
+                    question_message_id INTEGER NOT NULL,
+                    session_card TEXT,
+                    started_at TEXT NOT NULL,
+                    completed_at TEXT,
+                    updated_at TEXT NOT NULL
+                )
+                """
+            )
+            connection.execute(
+                """
+                CREATE UNIQUE INDEX one_active_conversation
+                ON conversations ((1)) WHERE status IN ('OPEN', 'CLOSING')
+                """
+            )
+            connection.execute(
+                """
+                INSERT INTO conversations (
+                    id, status, channel_id, question_message_id, session_card,
+                    started_at, completed_at, updated_at
+                ) VALUES (?, 'COMPLETED', ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    "historical-conversation",
+                    1234,
+                    5678,
+                    "Preserved session card",
+                    _HISTORICAL_TIME,
+                    _HISTORICAL_TIME,
+                    _HISTORICAL_TIME,
+                ),
+            )
+        connection.execute(f"PRAGMA user_version = {version}")
+
+
+@pytest.mark.parametrize("source_version", [1, 2, 3])
+def test_historical_schema_upgrade_preserves_public_state(tmp_path, source_version) -> None:
+    """Every deployed schema must reach v4 without replacing user or runtime state."""
+    database_path = tmp_path / f"version-{source_version}.sqlite3"
+    _create_historical_database(database_path, source_version)
+
+    store = StateStore(database_path, default_interval_seconds=999)
+    store.initialize()
+    state = StateStore(database_path, default_interval_seconds=111).get_state()
+
+    assert state.status is ApplicationStatus.PAUSED
+    assert state.interval_seconds == 21_600
+    assert state.last_error == "preserved failure"
+    assert state.created_at == datetime.fromisoformat(_HISTORICAL_TIME)
+    assert state.updated_at == datetime.fromisoformat(_HISTORICAL_TIME)
+    assert state.last_error_kind is None
+    if source_version == 1:
+        assert state.pi_session_id is None
+        assert state.last_input_tokens == 0
+        assert state.last_cost == 0
+    else:
+        assert state.pi_session_id == "historical-session"
+        assert state.pi_session_file == "sessions/historical.jsonl"
+        assert state.last_provider == "historical-provider"
+        assert state.last_model_id == "historical-model"
+        assert state.last_input_tokens == 321
+        assert state.last_output_tokens == 45
+        assert state.last_cost == pytest.approx(0.125)
+    with sqlite3.connect(database_path) as connection:
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 4
+
+
+def test_version_3_upgrade_preserves_completed_conversation(tmp_path) -> None:
+    """Adding v4 error metadata must not lose completed conversations or their session cards."""
+    database_path = tmp_path / "version-3.sqlite3"
+    _create_historical_database(database_path, 3)
+
+    store = StateStore(database_path, default_interval_seconds=86_400)
+    store.initialize()
+    conversation = store.get_conversation("historical-conversation")
+
+    assert conversation is not None
+    assert conversation.status is ConversationStatus.COMPLETED
+    assert conversation.channel_id == 1234
+    assert conversation.question_message_id == 5678
+    assert conversation.session_card == "Preserved session card"
+    assert conversation.started_at == datetime.fromisoformat(_HISTORICAL_TIME)
+    assert conversation.completed_at == datetime.fromisoformat(_HISTORICAL_TIME)
+    assert store.get_active_conversation() is None
