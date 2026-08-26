@@ -5,15 +5,17 @@ clarify decisions without optimizing for either validation or disagreement.
 
 ## Current status
 
-The project is being built as a sequence of end-to-end increments. The current increment only
-establishes a guarded Discord development connection.
+The project is being built as a sequence of end-to-end increments. The current increment
+establishes a guarded Discord development connection and durable local operational state.
 
 Implemented:
 
 - Environment-based configuration
 - Explicit guild, channel, and user allowlisting
 - Discord application-command registration
-- Private `/status` response
+- Private `/status`, `/pause`, and `/resume` responses
+- SQLite schema migration and durable `WAITING`/`PAUSED` state
+- Persisted interval and planned next-activation timestamp
 - Structured local logs
 - Clean Discord client shutdown
 
@@ -21,9 +23,8 @@ Not implemented yet:
 
 - Pi RPC or any model call
 - Conversation handling
-- SQLite persistence
-- Scheduling
-- `/done`, `/pause`, `/resume`, or `/interval`
+- Active scheduling (the next timestamp is stored but not acted upon)
+- `/done` or `/interval`
 - Discord source ingestion
 - Agent prompts or session cards
 
@@ -76,6 +77,8 @@ DISCORD_GUILD_ID=your-private-server-id
 DISCORD_TEST_CHANNEL_ID=your-private-test-channel-id
 DISCORD_ALLOWED_USER_ID=your-user-id
 SPARRING_PARTNER_TEST_MODE=true
+SPARRING_PARTNER_DATABASE_PATH=data/sparring_partner.sqlite3
+SPARRING_PARTNER_DEFAULT_INTERVAL_HOURS=24
 SPARRING_PARTNER_LOG_LEVEL=INFO
 ```
 
@@ -88,10 +91,11 @@ or other credentials.
 sparring-partner
 ```
 
-When connected, use `/status` in the configured test channel. The response is ephemeral and
-visible only to the invoking user.
+When connected, use `/status` in the configured test channel. Use `/pause` and `/resume` to
+change durable application state. Responses are ephemeral and visible only to the invoking
+user.
 
-The command is rejected unless all three values match the configured development boundary:
+Commands are rejected unless all three values match the configured development boundary:
 
 - Guild ID
 - Channel ID

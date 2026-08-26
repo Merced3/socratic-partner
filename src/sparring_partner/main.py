@@ -6,6 +6,7 @@ import logging
 
 from .config import ConfigurationError, Settings
 from .discord_bot import create_bot
+from .store import StateStore
 
 
 def configure_logging(level: str) -> None:
@@ -22,7 +23,12 @@ def main() -> None:
         raise SystemExit(f"Configuration error: {exc}") from exc
 
     configure_logging(settings.log_level)
-    bot = create_bot(settings)
+    store = StateStore(
+        settings.database_path,
+        default_interval_seconds=settings.default_interval_seconds,
+    )
+    store.initialize()
+    bot = create_bot(settings, store)
     bot.run(settings.discord_bot_token, log_handler=None)
 
 

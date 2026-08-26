@@ -20,6 +20,8 @@ def test_loads_valid_environment() -> None:
     assert settings.discord_test_channel_id == 200
     assert settings.discord_allowed_user_id == 300
     assert settings.test_mode is True
+    assert settings.database_path.as_posix() == "data/sparring_partner.sqlite3"
+    assert settings.default_interval_seconds == 24 * 60 * 60
 
 
 def test_rejects_missing_secret() -> None:
@@ -33,6 +35,15 @@ def test_rejects_non_numeric_identifier() -> None:
     environment = {**VALID_ENVIRONMENT, "DISCORD_GUILD_ID": "not-an-id"}
 
     with pytest.raises(ConfigurationError, match="DISCORD_GUILD_ID must be an integer"):
+        Settings.from_environment(environment, env_file=None)
+
+
+def test_rejects_invalid_default_interval() -> None:
+    environment = {**VALID_ENVIRONMENT, "SPARRING_PARTNER_DEFAULT_INTERVAL_HOURS": "0"}
+
+    with pytest.raises(
+        ConfigurationError, match="SPARRING_PARTNER_DEFAULT_INTERVAL_HOURS must be positive"
+    ):
         Settings.from_environment(environment, env_file=None)
 
 

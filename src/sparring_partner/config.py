@@ -25,6 +25,8 @@ class Settings:
     discord_allowed_user_id: int
     test_mode: bool
     log_level: str
+    database_path: Path
+    default_interval_seconds: int
 
     @classmethod
     def from_environment(
@@ -44,6 +46,13 @@ class Settings:
         user_id = _required_positive_int(environment, "DISCORD_ALLOWED_USER_ID")
         test_mode = _parse_bool(environment.get("SPARRING_PARTNER_TEST_MODE", "true"))
         log_level = environment.get("SPARRING_PARTNER_LOG_LEVEL", "INFO").strip().upper()
+        database_path_value = environment.get(
+            "SPARRING_PARTNER_DATABASE_PATH", "data/sparring_partner.sqlite3"
+        ).strip()
+        database_path = Path(database_path_value)
+        default_interval_hours = _positive_int_with_default(
+            environment, "SPARRING_PARTNER_DEFAULT_INTERVAL_HOURS", default=24
+        )
 
         if not test_mode:
             raise ConfigurationError(
@@ -53,6 +62,8 @@ class Settings:
             raise ConfigurationError(
                 f"SPARRING_PARTNER_LOG_LEVEL must be one of {sorted(_VALID_LOG_LEVELS)}."
             )
+        if not database_path_value:
+            raise ConfigurationError("SPARRING_PARTNER_DATABASE_PATH cannot be empty.")
 
         return cls(
             discord_bot_token=token,
@@ -61,6 +72,8 @@ class Settings:
             discord_allowed_user_id=user_id,
             test_mode=test_mode,
             log_level=log_level,
+            database_path=database_path,
+            default_interval_seconds=default_interval_hours * 60 * 60,
         )
 
 
@@ -73,6 +86,21 @@ def _required_text(environment: Mapping[str, str], name: str) -> str:
 
 def _required_positive_int(environment: Mapping[str, str], name: str) -> int:
     raw_value = _required_text(environment, name)
+    try:
+        value = int(raw_value)
+    except ValueError as exc:
+        raise ConfigurationError(f"{name} must be an integer.") from exc
+    if value <= 0:
+        raise ConfigurationError(f"{name} must be positive.")
+    return value
+
+
+def _positive_int_with_default(
+    environment: Mapping[str, str], name: str, *, default: int
+) -> int:
+    raw_value = environment.get(name)
+    if raw_value is None or not raw_value.strip():
+        return default
     try:
         value = int(raw_value)
     except ValueError as exc:

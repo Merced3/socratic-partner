@@ -1,3 +1,5 @@
+from pathlib import Path
+
 from sparring_partner.config import Settings
 from sparring_partner.discord_bot import is_authorized
 
@@ -8,6 +10,8 @@ SETTINGS = Settings(
     discord_allowed_user_id=300,
     test_mode=True,
     log_level="INFO",
+    database_path=Path("data/test.sqlite3"),
+    default_interval_seconds=24 * 60 * 60,
 )
 
 
