@@ -1,3 +1,5 @@
+"""Real-SQLite integration tests assert durable public state rather than SQL implementation."""
+
 import sqlite3
 from datetime import UTC, datetime, timedelta
 
@@ -7,6 +9,7 @@ from socratic_partner.store import ApplicationStatus, ConversationStatus, StateS
 
 
 def test_initializes_waiting_state(tmp_path) -> None:
+    """A fresh deployment needs a safe idle state before any model or Discord activity."""
     store = StateStore(tmp_path / "state.sqlite3", default_interval_seconds=86_400)
 
     store.initialize()
@@ -19,6 +22,7 @@ def test_initializes_waiting_state(tmp_path) -> None:
 
 
 def test_pause_survives_new_store_instance(tmp_path) -> None:
+    """User pause is a durable safety control; reconstruction simulates process restart."""
     database_path = tmp_path / "state.sqlite3"
     store = StateStore(database_path, default_interval_seconds=86_400)
     store.initialize()
@@ -37,6 +41,7 @@ def test_pause_survives_new_store_instance(tmp_path) -> None:
 
 
 def test_resume_starts_fresh_interval_and_survives_restart(tmp_path) -> None:
+    """Resume starts one fresh interval and preserves that public state across reconstruction."""
     database_path = tmp_path / "state.sqlite3"
     store = StateStore(database_path, default_interval_seconds=7_200)
     store.initialize()
@@ -55,6 +60,7 @@ def test_resume_starts_fresh_interval_and_survives_restart(tmp_path) -> None:
 
 
 def test_records_agent_runtime_and_clears_previous_error(tmp_path) -> None:
+    """A successful model run must replace stale failure status with inspectable runtime facts."""
     store = StateStore(tmp_path / "state.sqlite3", default_interval_seconds=86_400)
     store.initialize()
     failed_at = datetime(2026, 8, 25, 12, 0, tzinfo=UTC)
@@ -84,6 +90,7 @@ def test_records_agent_runtime_and_clears_previous_error(tmp_path) -> None:
 
 
 def test_conversation_lifecycle_sets_next_interval(tmp_path) -> None:
+    """The outer interval begins at successful `/done`, not at conversation kickoff."""
     store = StateStore(tmp_path / "state.sqlite3", default_interval_seconds=7_200)
     store.initialize()
     started_at = datetime(2026, 8, 25, 12, 0, tzinfo=UTC)
@@ -109,6 +116,7 @@ def test_conversation_lifecycle_sets_next_interval(tmp_path) -> None:
 
 
 def test_paused_completion_does_not_schedule_next_question(tmp_path) -> None:
+    """Completing a conversation must not override the user's durable pause decision."""
     store = StateStore(tmp_path / "state.sqlite3", default_interval_seconds=7_200)
     store.initialize()
     now = datetime(2026, 8, 25, 12, 0, tzinfo=UTC)
@@ -130,6 +138,7 @@ def test_paused_completion_does_not_schedule_next_question(tmp_path) -> None:
 
 
 def test_only_one_conversation_can_be_active(tmp_path) -> None:
+    """One-user conversation routing is ambiguous if two conversations can be active."""
     store = StateStore(tmp_path / "state.sqlite3", default_interval_seconds=86_400)
     store.initialize()
     store.start_conversation(
@@ -143,6 +152,7 @@ def test_only_one_conversation_can_be_active(tmp_path) -> None:
 
 
 def test_interval_updates_due_time_when_idle(tmp_path) -> None:
+    """Changing an idle interval must expose a newly calculated due time through public state."""
     store = StateStore(tmp_path / "state.sqlite3", default_interval_seconds=86_400)
     store.initialize()
     changed_at = datetime(2026, 8, 25, 12, 0, tzinfo=UTC)
@@ -154,6 +164,7 @@ def test_interval_updates_due_time_when_idle(tmp_path) -> None:
 
 
 def test_interval_waits_for_active_conversation_completion(tmp_path) -> None:
+    """An active session owns timing until `/done`; interval changes must not schedule over it."""
     store = StateStore(tmp_path / "state.sqlite3", default_interval_seconds=86_400)
     store.initialize()
     changed_at = datetime(2026, 8, 25, 12, 0, tzinfo=UTC)
@@ -171,6 +182,7 @@ def test_interval_waits_for_active_conversation_completion(tmp_path) -> None:
 
 
 def test_billing_error_pauses_automation(tmp_path) -> None:
+    """Billing failure requires operator action, so persisted future activation must stop."""
     store = StateStore(tmp_path / "state.sqlite3", default_interval_seconds=86_400)
     store.initialize()
 
@@ -184,6 +196,7 @@ def test_billing_error_pauses_automation(tmp_path) -> None:
 
 
 def test_rejects_naive_operation_timestamp(tmp_path) -> None:
+    """Reject timezone-ambiguous writes before they corrupt cross-restart scheduling semantics."""
     store = StateStore(tmp_path / "state.sqlite3", default_interval_seconds=86_400)
     store.initialize()
 
@@ -192,6 +205,7 @@ def test_rejects_naive_operation_timestamp(tmp_path) -> None:
 
 
 def test_rejects_newer_database_schema(tmp_path) -> None:
+    """Older code must fail visibly instead of silently damaging data written by newer code."""
     database_path = tmp_path / "state.sqlite3"
     with sqlite3.connect(database_path) as connection:
         connection.execute("PRAGMA user_version = 99")

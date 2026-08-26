@@ -1,7 +1,7 @@
 # Working on Socratic Partner
 
 Read `README.md`, `docs/architecture.md`, `docs/project-state.md`,
-`docs/development-workflow.md`, and `tests/README.md` before planning changes.
+`docs/development-workflow.md`, `tests/README.md`, and `tests/CONTRACTS.md` before planning changes.
 
 ## Approval boundary
 

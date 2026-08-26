@@ -1,3 +1,5 @@
+"""Authorization boundary permutations share one risk: private input crossing its allowlist."""
+
 from pathlib import Path
 
 from socratic_partner.config import Settings

@@ -1,3 +1,5 @@
+"""Focused Pi protocol regressions; private hooks are temporary white-box fault injection."""
+
 from pathlib import Path
 
 import pytest
@@ -28,6 +30,7 @@ def _client(*, timeout_seconds: float = 120) -> PiRpcClient:
 
 
 def test_rejects_settled_assistant_error() -> None:
+    """A provider failure must never become accepted conversational text."""
     with pytest.raises(PiRpcError, match="available credits"):
         _raise_for_assistant_error(ERROR_ASSISTANT)
 
@@ -37,6 +40,7 @@ def test_accepts_successful_assistant_message() -> None:
 
 
 async def test_wait_until_settled_returns_authoritative_assistant_event() -> None:
+    """Use Pi's authoritative `message_end`; private injection isolates that invariant."""
     client = _client()
     await client._events.put({"type": "message_end", "message": SUCCESS_ASSISTANT})
     await client._events.put({"type": "agent_settled"})
@@ -45,6 +49,7 @@ async def test_wait_until_settled_returns_authoritative_assistant_event() -> Non
 
 
 async def test_prompt_does_not_request_complete_message_history(monkeypatch) -> None:
+    """Regression: growing sessions must not reintroduce the full-history RPC timeout."""
     client = _client()
     commands = []
 
@@ -86,6 +91,7 @@ async def test_prompt_does_not_request_complete_message_history(monkeypatch) -> 
 
 
 async def test_settle_timeout_resets_process(monkeypatch) -> None:
+    """A timed-out transport must reset instead of poisoning every later command."""
     client = _client(timeout_seconds=0.01)
     closed = False
 
@@ -102,6 +108,7 @@ async def test_settle_timeout_resets_process(monkeypatch) -> None:
 
 
 async def test_reader_failure_event_is_reported() -> None:
+    """Reader failure must surface immediately rather than degrade into an unrelated timeout."""
     client = _client()
     await client._events.put({"type": "reader_failed", "error": "line too large"})
 

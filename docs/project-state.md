@@ -45,7 +45,9 @@ The scheduler experiment migrated the private runtime database from schema 4 to 
 
 - Automated suite at runtime baseline: 39 passing tests
 - Manual `/ask-test` and `/ask-now` acceptance passed after the RPC history-timeout fix
-- Existing tests predate `tests/README.md` and require incremental rationale/black-box audit
+- Existing suite audit is recorded in `tests/CONTRACTS.md`
+- Test rationale is documented at useful test/group granularity
+- Complete automated conversation/restart black-box coverage remains a v0.09 prerequisite
 
 ## Next milestone
 

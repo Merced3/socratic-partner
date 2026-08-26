@@ -2,6 +2,8 @@
 
 Tests exist to provide credible evidence that behavior works and remains safe—not to maximize test count or mirror the current implementation.
 
+See [`CONTRACTS.md`](CONTRACTS.md) for the current map from product behavior to automated, manual, and missing evidence.
+
 ## Highest-level rule
 
 Every user-visible feature needs a black-box acceptance path.
@@ -49,9 +51,11 @@ Prefer protocol-shaped fakes over mocks that simply return whatever the implemen
 
 Use unit tests for pure policy and edge cases such as error classification, timestamp rules, and message formatting. Unit tests should call public functions where practical. Testing a private helper is justified only when the helper owns a critical protocol invariant or fault path that cannot be observed precisely through a public boundary; document that reason.
 
-## Required rationale for every test
+## Required rationale at the useful level
 
-Every test must include a concise docstring or an immediately adjacent comment that answers:
+Every non-trivial test or coherent group of tests must make its rationale discoverable. Put the rationale at the narrowest level that adds information: a test docstring, an adjacent comment, a parameterized-table explanation, or a module-level contract statement.
+
+The rationale should answer, where it is not already obvious:
 
 1. **Why does this behavior matter?**
 2. **What regression or risk does this test detect?**
@@ -64,9 +68,9 @@ def test_resume_preserves_interval(tmp_path) -> None:
     """A restart must preserve the user's interval; assert public state, not SQL layout."""
 ```
 
-For parameterized cases, one test-level rationale may cover the full table when every row proves the same invariant. Do not add repetitive prose to each parameter.
+For parameterized cases, one explanation may cover the full table when every row proves the same invariant. A module-level statement may cover small boundary permutations such as wrong guild/channel/user checks. Do not add repetitive prose to every parameter or trivial variation.
 
-A test name alone is not considered a complete rationale.
+A clear test name may be sufficient for a trivial assertion when the containing module already states the contract and risk. If a future maintainer could reasonably ask “why preserve this?”, add an explicit rationale.
 
 ## What overfitting looks like
 
@@ -120,9 +124,9 @@ Deleting a test is acceptable when its claimed invariant no longer exists and th
 
 ## Current-suite adoption
 
-This policy applies immediately to every new or modified test. Existing tests predate the policy and must be audited incrementally. Do not mass-add meaningless docstrings. When touching an existing test file, improve the rationale and black-box alignment for the tests affected by the change.
+This policy applies immediately to new and modified behavior. Existing tests predate the policy and are tracked in [`CONTRACTS.md`](CONTRACTS.md). Do not mass-add meaningless docstrings. When touching a test file, improve rationale and black-box alignment where doing so adds information.
 
-Before declaring v0.09, complete a focused audit of all tests and add automated black-box coverage for the full manual conversation loop and restart behavior.
+Before declaring v0.09, add automated black-box coverage for the full manual conversation loop and restart behavior, then update the contract matrix with the evidence actually obtained.
 
 ## Honest language
 

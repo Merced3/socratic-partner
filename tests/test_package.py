@@ -1,3 +1,5 @@
+"""Minimal import smoke test; packaging/CLI execution still requires black-box coverage."""
+
 import socratic_partner
 
 

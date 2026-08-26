@@ -1,3 +1,5 @@
+"""Configuration contract tests: unsafe deployments must fail before external connections."""
+
 import pytest
 
 from socratic_partner.config import ConfigurationError, Settings
@@ -13,6 +15,7 @@ VALID_ENVIRONMENT = {
 
 
 def test_loads_valid_environment() -> None:
+    """Document stable defaults through the public loader, without reading a real `.env`."""
     settings = Settings.from_environment(VALID_ENVIRONMENT, env_file=None)
 
     assert settings.discord_bot_token == "test-token"

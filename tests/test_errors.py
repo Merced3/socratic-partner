@@ -1,3 +1,5 @@
+"""Pure error-policy tests protect provider-agnostic behavior without mocking providers."""
+
 import pytest
 
 from socratic_partner.errors import ErrorKind, classify_error
@@ -17,6 +19,7 @@ from socratic_partner.errors import ErrorKind, classify_error
     ],
 )
 def test_classifies_provider_agnostic_errors(detail, expected) -> None:
+    """Representative protocol text must map to policy categories, not provider identities."""
     assert classify_error(detail).kind is expected
 
 
@@ -27,6 +30,7 @@ def test_extracts_retry_after() -> None:
 
 
 def test_only_persistent_failures_pause_automation() -> None:
+    """Only failures needing operator action may stop future work; transient errors must recover."""
     assert classify_error("402 credits exhausted").should_pause_automation
     assert classify_error("401 unauthorized").should_pause_automation
     assert not classify_error("429 rate limit").should_pause_automation
