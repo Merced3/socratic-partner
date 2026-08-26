@@ -14,6 +14,8 @@ from uuid import uuid4
 
 logger = logging.getLogger(__name__)
 
+_SUBPROCESS_STREAM_LIMIT = 8 * 1024 * 1024
+
 
 class PiRpcError(RuntimeError):
     """Raised when Pi cannot complete an RPC operation."""
@@ -102,6 +104,7 @@ class PiRpcClient:
                 stdin=asyncio.subprocess.PIPE,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
+                limit=_SUBPROCESS_STREAM_LIMIT,
             )
         except OSError as exc:
             raise PiRpcError(f"Could not start Pi: {exc}") from exc
@@ -154,6 +157,7 @@ class PiRpcClient:
         self._process = None
         self._stdout_task = None
         self._stderr_task = None
+        self._discard_queued_events()
 
     async def get_state(self) -> dict[str, Any]:
         response = await self._request({"type": "get_state"})
@@ -173,15 +177,13 @@ class PiRpcClient:
             await self.start()
             self._discard_queued_events()
             await self._request({"type": "prompt", "message": message})
-            await self._wait_until_settled()
+            assistant = await self._wait_until_settled()
+            _raise_for_assistant_error(assistant)
 
-            messages_response = await self._request({"type": "get_messages"})
-            _raise_for_assistant_error(_response_data(messages_response))
-            text_response = await self._request({"type": "get_last_assistant_text"})
             state_response = await self._request({"type": "get_state"})
             stats_response = await self._request({"type": "get_session_stats"})
-            text = _response_data(text_response).get("text")
-            if not isinstance(text, str) or not text.strip():
+            text = _assistant_text(assistant)
+            if not text.strip():
                 raise PiRpcError("Pi settled without a text response.")
 
             state = _response_data(state_response)
@@ -208,6 +210,7 @@ class PiRpcClient:
                 raise PiRpcError("Pi RPC process is not running.")
             await self.start()
 
+        await self._ensure_reader_healthy()
         process = self._process
         if process is None or process.stdin is None:
             raise PiRpcError("Pi RPC stdin is unavailable.")
@@ -224,7 +227,11 @@ class PiRpcClient:
                 await process.stdin.drain()
             response = await asyncio.wait_for(future, timeout=self.timeout_seconds)
         except TimeoutError as exc:
-            raise PiRpcError(f"Pi RPC command timed out: {command.get('type')}") from exc
+            self._pending.pop(request_id, None)
+            await self.close()
+            raise PiRpcError(
+                f"Pi RPC command timed out and the process was reset: {command.get('type')}"
+            ) from exc
         finally:
             self._pending.pop(request_id, None)
 
@@ -232,19 +239,29 @@ class PiRpcClient:
             raise PiRpcError(str(response.get("error") or "Unknown Pi RPC error"))
         return response
 
-    async def _wait_until_settled(self) -> None:
-        async def wait() -> None:
+    async def _wait_until_settled(self) -> dict[str, Any]:
+        async def wait() -> dict[str, Any]:
+            assistant: dict[str, Any] | None = None
             while True:
                 event = await self._events.get()
-                if event.get("type") == "agent_settled":
-                    return
-                if event.get("type") == "process_exited":
+                if event.get("type") == "message_end":
+                    message = event.get("message")
+                    if isinstance(message, dict) and message.get("role") == "assistant":
+                        assistant = message
+                elif event.get("type") == "agent_settled":
+                    if assistant is None:
+                        raise PiRpcError("Pi settled without a final assistant message.")
+                    return assistant
+                elif event.get("type") == "process_exited":
                     raise PiRpcError("Pi exited before the agent settled.")
+                elif event.get("type") == "reader_failed":
+                    raise PiRpcError(str(event.get("error") or "Pi RPC reader failed."))
 
         try:
-            await asyncio.wait_for(wait(), timeout=self.timeout_seconds)
+            return await asyncio.wait_for(wait(), timeout=self.timeout_seconds)
         except TimeoutError as exc:
-            raise PiRpcError("Pi agent run timed out before settling.") from exc
+            await self.close()
+            raise PiRpcError("Pi agent run timed out and the process was reset.") from exc
 
     async def _read_stdout(self) -> None:
         process = self._process
@@ -264,11 +281,19 @@ class PiRpcClient:
                         future.set_result(payload)
                 else:
                     await self._events.put(payload)
-        finally:
-            return_code = await process.wait()
-            error = PiRpcError(f"Pi RPC process exited with code {return_code}.")
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            logger.exception("Pi RPC stdout reader failed.")
+            error = PiRpcError(f"Pi RPC stdout reader failed: {exc}")
             self._fail_pending(error)
-            await self._events.put({"type": "process_exited", "returncode": return_code})
+            await self._events.put({"type": "reader_failed", "error": str(error)})
+            return
+
+        return_code = await process.wait()
+        error = PiRpcError(f"Pi RPC process exited with code {return_code}.")
+        self._fail_pending(error)
+        await self._events.put({"type": "process_exited", "returncode": return_code})
 
     async def _read_stderr(self) -> None:
         process = self._process
@@ -276,6 +301,17 @@ class PiRpcClient:
             return
         while line := await process.stderr.readline():
             logger.warning("Pi stderr: %s", line.decode(errors="replace").rstrip())
+
+    async def _ensure_reader_healthy(self) -> None:
+        task = self._stdout_task
+        if task is None or not task.done():
+            return
+        error: BaseException | None = None
+        if not task.cancelled():
+            error = task.exception()
+        await self.close()
+        detail = f": {error}" if error else ""
+        raise PiRpcError(f"Pi RPC stdout reader is not running{detail}.")
 
     def _fail_pending(self, error: Exception) -> None:
         for future in self._pending.values():
@@ -290,20 +326,9 @@ class PiRpcClient:
                 return
 
 
-def _raise_for_assistant_error(data: dict[str, Any]) -> None:
-    messages = data.get("messages")
-    if not isinstance(messages, list):
-        raise PiRpcError("Pi RPC message history was not an array.")
-    assistant = next(
-        (
-            message
-            for message in reversed(messages)
-            if isinstance(message, dict) and message.get("role") == "assistant"
-        ),
-        None,
-    )
-    if assistant is None:
-        raise PiRpcError("Pi settled without an assistant message.")
+def _raise_for_assistant_error(assistant: dict[str, Any]) -> None:
+    if assistant.get("role") != "assistant":
+        raise PiRpcError("Pi final message was not an assistant message.")
     if assistant.get("stopReason") != "error":
         return
 
