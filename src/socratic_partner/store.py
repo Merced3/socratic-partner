@@ -10,13 +10,31 @@ from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from pathlib import Path
 
-_SCHEMA_VERSION = 2
+_SCHEMA_VERSION = 3
 _SINGLETON_ID = 1
 
 
 class ApplicationStatus(StrEnum):
     WAITING = "WAITING"
     PAUSED = "PAUSED"
+
+
+class ConversationStatus(StrEnum):
+    OPEN = "OPEN"
+    CLOSING = "CLOSING"
+    COMPLETED = "COMPLETED"
+
+
+@dataclass(frozen=True, slots=True)
+class Conversation:
+    id: str
+    status: ConversationStatus
+    channel_id: int
+    question_message_id: int
+    session_card: str | None
+    started_at: datetime
+    completed_at: datetime | None
+    updated_at: datetime
 
 
 @dataclass(frozen=True, slots=True)
@@ -59,6 +77,9 @@ class StateStore:
                 version = 1
             if version == 1:
                 self._migrate_to_version_2(connection)
+                version = 2
+            if version == 2:
+                self._migrate_to_version_3(connection)
 
     def get_state(self) -> ApplicationState:
         with self._connection() as connection:
@@ -76,6 +97,127 @@ class StateStore:
         if row is None:
             raise RuntimeError("Application state is missing; initialize the store first.")
         return _state_from_row(row)
+
+    def get_active_conversation(self) -> Conversation | None:
+        with self._connection() as connection:
+            row = connection.execute(
+                """
+                SELECT id, status, channel_id, question_message_id, session_card,
+                       started_at, completed_at, updated_at
+                FROM conversations
+                WHERE status IN ('OPEN', 'CLOSING')
+                ORDER BY started_at DESC
+                LIMIT 1
+                """
+            ).fetchone()
+        return _conversation_from_row(row) if row is not None else None
+
+    def start_conversation(
+        self,
+        *,
+        conversation_id: str,
+        channel_id: int,
+        question_message_id: int,
+        now: datetime | None = None,
+    ) -> Conversation:
+        timestamp = _as_utc(now or datetime.now(UTC)).isoformat()
+        with self._connection() as connection:
+            connection.execute(
+                """
+                INSERT INTO conversations (
+                    id, status, channel_id, question_message_id, session_card,
+                    started_at, completed_at, updated_at
+                ) VALUES (?, 'OPEN', ?, ?, NULL, ?, NULL, ?)
+                """,
+                (conversation_id, channel_id, question_message_id, timestamp, timestamp),
+            )
+        conversation = self.get_active_conversation()
+        if conversation is None:
+            raise RuntimeError("Conversation was not created.")
+        return conversation
+
+    def mark_conversation_closing(
+        self, conversation_id: str, *, now: datetime | None = None
+    ) -> Conversation:
+        timestamp = _as_utc(now or datetime.now(UTC)).isoformat()
+        with self._connection() as connection:
+            cursor = connection.execute(
+                """
+                UPDATE conversations
+                SET status = 'CLOSING', updated_at = ?
+                WHERE id = ? AND status = 'OPEN'
+                """,
+                (timestamp, conversation_id),
+            )
+            if cursor.rowcount != 1:
+                raise RuntimeError("Open conversation was not available for closing.")
+        conversation = self.get_active_conversation()
+        if conversation is None:
+            raise RuntimeError("Closing conversation is missing.")
+        return conversation
+
+    def reopen_conversation(
+        self, conversation_id: str, *, now: datetime | None = None
+    ) -> Conversation:
+        timestamp = _as_utc(now or datetime.now(UTC)).isoformat()
+        with self._connection() as connection:
+            connection.execute(
+                """
+                UPDATE conversations
+                SET status = 'OPEN', updated_at = ?
+                WHERE id = ? AND status = 'CLOSING'
+                """,
+                (timestamp, conversation_id),
+            )
+        conversation = self.get_active_conversation()
+        if conversation is None:
+            raise RuntimeError("Conversation could not be reopened.")
+        return conversation
+
+    def complete_conversation(
+        self,
+        conversation_id: str,
+        *,
+        session_card: str,
+        now: datetime | None = None,
+    ) -> ApplicationState:
+        timestamp = _as_utc(now or datetime.now(UTC))
+        with self._connection() as connection:
+            cursor = connection.execute(
+                """
+                UPDATE conversations
+                SET status = 'COMPLETED', session_card = ?, completed_at = ?, updated_at = ?
+                WHERE id = ? AND status = 'CLOSING'
+                """,
+                (
+                    session_card,
+                    timestamp.isoformat(),
+                    timestamp.isoformat(),
+                    conversation_id,
+                ),
+            )
+            if cursor.rowcount != 1:
+                raise RuntimeError("Closing conversation was not available for completion.")
+            state = connection.execute(
+                "SELECT status, interval_seconds FROM application_state WHERE id = ?",
+                (_SINGLETON_ID,),
+            ).fetchone()
+            if state is None:
+                raise RuntimeError("Application state is missing.")
+            next_question_at = None
+            if state["status"] == ApplicationStatus.WAITING:
+                next_question_at = (
+                    timestamp + timedelta(seconds=state["interval_seconds"])
+                ).isoformat()
+            connection.execute(
+                """
+                UPDATE application_state
+                SET next_question_at = ?, updated_at = ?
+                WHERE id = ?
+                """,
+                (next_question_at, timestamp.isoformat(), _SINGLETON_ID),
+            )
+        return self.get_state()
 
     def pause(self, *, now: datetime | None = None) -> ApplicationState:
         timestamp = _as_utc(now or datetime.now(UTC))
@@ -226,6 +368,43 @@ class StateStore:
         for definition in columns:
             connection.execute(f"ALTER TABLE application_state ADD COLUMN {definition}")
         connection.execute("PRAGMA user_version = 2")
+
+    def _migrate_to_version_3(self, connection: sqlite3.Connection) -> None:
+        connection.execute(
+            """
+            CREATE TABLE conversations (
+                id TEXT PRIMARY KEY,
+                status TEXT NOT NULL CHECK (status IN ('OPEN', 'CLOSING', 'COMPLETED')),
+                channel_id INTEGER NOT NULL,
+                question_message_id INTEGER NOT NULL,
+                session_card TEXT,
+                started_at TEXT NOT NULL,
+                completed_at TEXT,
+                updated_at TEXT NOT NULL
+            )
+            """
+        )
+        connection.execute(
+            """
+            CREATE UNIQUE INDEX one_active_conversation
+            ON conversations ((1))
+            WHERE status IN ('OPEN', 'CLOSING')
+            """
+        )
+        connection.execute("PRAGMA user_version = 3")
+
+
+def _conversation_from_row(row: sqlite3.Row) -> Conversation:
+    return Conversation(
+        id=row["id"],
+        status=ConversationStatus(row["status"]),
+        channel_id=row["channel_id"],
+        question_message_id=row["question_message_id"],
+        session_card=row["session_card"],
+        started_at=_parse_required_datetime(row["started_at"]),
+        completed_at=_parse_datetime(row["completed_at"]),
+        updated_at=_parse_required_datetime(row["updated_at"]),
+    )
 
 
 def _state_from_row(row: sqlite3.Row) -> ApplicationState:

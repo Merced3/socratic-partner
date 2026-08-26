@@ -8,6 +8,7 @@ from pathlib import Path
 from .config import ConfigurationError, Settings
 from .discord_bot import create_bot
 from .pi_rpc import PiRpcClient
+from .prompts import SYSTEM_PROMPT
 from .store import StateStore
 
 
@@ -37,6 +38,7 @@ def main() -> None:
         session_directory=settings.pi_session_directory.resolve(),
         session_file=state.pi_session_file,
         model=settings.pi_model,
+        system_prompt=SYSTEM_PROMPT,
         timeout_seconds=settings.pi_timeout_seconds,
     )
     bot = create_bot(settings, store, pi_client)

@@ -6,14 +6,17 @@ clarify decisions without optimizing for either validation or disagreement.
 ## Current status
 
 The project is being built as a sequence of end-to-end increments. The current increment
-establishes a guarded Discord development connection and durable local operational state.
+provides a manually initiated, persistent Socratic conversation loop through Discord.
 
 Implemented:
 
 - Environment-based configuration
 - Explicit guild, channel, and user allowlisting
 - Discord application-command registration
-- Private `/status`, `/ask-test`, `/pause`, and `/resume` responses
+- Private `/status`, `/ask-test`, `/ask-now`, `/done`, `/pause`, and `/resume` controls
+- Normal persistent Discord messages for Socratic conversations and session cards
+- One restart-recoverable active conversation at a time
+- Versioned Socratic behavior, opening, and session-card prompts
 - SQLite schema migration and durable `WAITING`/`PAUSED` state
 - Persisted interval and planned next-activation timestamp
 - Isolated Pi RPC process with no tools or project resources
@@ -23,12 +26,11 @@ Implemented:
 
 Not implemented yet:
 
-- Purpose-driven Socratic conversations (only a fixed connectivity prompt exists)
-- Ordinary Discord message handling
 - Active scheduling (the next timestamp is stored but not acted upon)
-- `/done` or `/interval`
-- Discord source ingestion
-- Agent prompts or session cards
+- `/interval`
+- Discord source ingestion or long-term derived memory
+- Automatic conversation completion
+- Threads, reactions on session cards, or direct messages
 
 ## Requirements
 
@@ -58,10 +60,12 @@ In the Discord Developer Portal:
    - Send Messages
    - Read Message History
    - Use Application Commands
-6. Do not grant Administrator.
+6. Under **Bot → Privileged Gateway Intents**, enable **Message Content Intent**.
+7. Do not grant Administrator.
 
-The current increment uses only slash commands, so privileged Message Content Intent is not
-required yet. It will be considered when ordinary Discord messages become conversation input.
+Message Content Intent is required because normal replies in the allowlisted test channel are
+forwarded into the active Socratic conversation. Messages outside the configured guild,
+channel, and user boundary are ignored.
 
 Enable Discord Developer Mode to copy your guild (server), test channel, and user IDs.
 
@@ -97,9 +101,10 @@ or other credentials.
 socratic-partner
 ```
 
-When connected, use `/status` in the configured test channel. Use `/ask-test` for a safe,
-fixed Pi model call and `/pause` or `/resume` to change durable application state. Responses
-are ephemeral and visible only to the invoking user.
+When connected, use `/ask-now` to post the first persistent Socratic question. Reply normally
+in the configured channel, then use `/done` to generate a provisional session card and close
+the conversation. Control-command responses remain ephemeral; conversation messages and
+session cards remain visible in the channel.
 
 Commands are rejected unless all three values match the configured development boundary:
 
@@ -116,8 +121,7 @@ ruff check .
 
 ## Design direction
 
-Pi will provide the eventual model/session runtime through its RPC mode. This application will
-own the conversational workflow, durable state, Discord interaction, and activation timing.
-Pi launches without filesystem or shell tools, extensions, skills, prompt templates, or
-project context. The application records its persistent Pi session and usage metadata in
-SQLite.
+Pi provides the model/session runtime through RPC while this application owns the
+conversation lifecycle, durable state, Discord interaction, and activation timing. Pi launches
+without filesystem or shell tools, extensions, skills, prompt templates, or project context.
+The application records persistent session, conversation, and usage metadata in SQLite.

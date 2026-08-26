@@ -42,6 +42,7 @@ class PiRpcClient:
         session_directory: Path,
         session_file: str | None = None,
         model: str | None = None,
+        system_prompt: str | None = None,
         timeout_seconds: int = 120,
     ) -> None:
         self.executable = executable
@@ -49,6 +50,7 @@ class PiRpcClient:
         self.session_directory = session_directory
         self.session_file = session_file
         self.model = model
+        self.system_prompt = system_prompt
         self.timeout_seconds = timeout_seconds
         self._process: asyncio.subprocess.Process | None = None
         self._stdout_task: asyncio.Task[None] | None = None
@@ -89,6 +91,8 @@ class PiRpcClient:
             arguments.extend(("--session", self.session_file))
         if self.model:
             arguments.extend(("--model", self.model))
+        if self.system_prompt:
+            arguments.extend(("--system-prompt", self.system_prompt))
 
         logger.info("Starting isolated Pi RPC process.")
         try:
@@ -154,6 +158,15 @@ class PiRpcClient:
     async def get_state(self) -> dict[str, Any]:
         response = await self._request({"type": "get_state"})
         return _response_data(response)
+
+    async def new_session(self) -> dict[str, Any]:
+        async with self._run_lock:
+            await self.start()
+            await self._request({"type": "new_session"})
+            state = await self.get_state()
+            session_file = state.get("sessionFile")
+            self.session_file = session_file if isinstance(session_file, str) else None
+            return state
 
     async def prompt(self, message: str) -> PiRunResult:
         async with self._run_lock:

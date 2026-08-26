@@ -3,7 +3,7 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from socratic_partner.store import ApplicationStatus, StateStore
+from socratic_partner.store import ApplicationStatus, ConversationStatus, StateStore
 
 
 def test_initializes_waiting_state(tmp_path) -> None:
@@ -81,6 +81,65 @@ def test_records_agent_runtime_and_clears_previous_error(tmp_path) -> None:
     assert state.last_output_tokens == 15
     assert state.last_cost == pytest.approx(0.0042)
     assert state.last_error is None
+
+
+def test_conversation_lifecycle_sets_next_interval(tmp_path) -> None:
+    store = StateStore(tmp_path / "state.sqlite3", default_interval_seconds=7_200)
+    store.initialize()
+    started_at = datetime(2026, 8, 25, 12, 0, tzinfo=UTC)
+
+    conversation = store.start_conversation(
+        conversation_id="conversation-1",
+        channel_id=100,
+        question_message_id=200,
+        now=started_at,
+    )
+    assert conversation.status is ConversationStatus.OPEN
+
+    closing = store.mark_conversation_closing("conversation-1", now=started_at)
+    assert closing.status is ConversationStatus.CLOSING
+
+    completed_at = started_at + timedelta(minutes=15)
+    state = store.complete_conversation(
+        "conversation-1", session_card="Provisional card", now=completed_at
+    )
+
+    assert store.get_active_conversation() is None
+    assert state.next_question_at == completed_at + timedelta(hours=2)
+
+
+def test_paused_completion_does_not_schedule_next_question(tmp_path) -> None:
+    store = StateStore(tmp_path / "state.sqlite3", default_interval_seconds=7_200)
+    store.initialize()
+    now = datetime(2026, 8, 25, 12, 0, tzinfo=UTC)
+    store.start_conversation(
+        conversation_id="conversation-1",
+        channel_id=100,
+        question_message_id=200,
+        now=now,
+    )
+    store.pause(now=now)
+    store.mark_conversation_closing("conversation-1", now=now)
+
+    state = store.complete_conversation(
+        "conversation-1", session_card="Provisional card", now=now
+    )
+
+    assert state.status is ApplicationStatus.PAUSED
+    assert state.next_question_at is None
+
+
+def test_only_one_conversation_can_be_active(tmp_path) -> None:
+    store = StateStore(tmp_path / "state.sqlite3", default_interval_seconds=86_400)
+    store.initialize()
+    store.start_conversation(
+        conversation_id="conversation-1", channel_id=100, question_message_id=200
+    )
+
+    with pytest.raises(sqlite3.IntegrityError):
+        store.start_conversation(
+            conversation_id="conversation-2", channel_id=100, question_message_id=201
+        )
 
 
 def test_rejects_naive_operation_timestamp(tmp_path) -> None:

@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import logging
+import sqlite3
+from contextlib import suppress
+from uuid import uuid4
 
 import discord
 from discord import app_commands
@@ -10,8 +13,9 @@ from discord.ext import commands
 
 from . import __version__
 from .config import Settings
-from .pi_rpc import PiRpcClient, PiRpcError
-from .store import ApplicationState, StateStore
+from .pi_rpc import PiRpcClient, PiRpcError, PiRunResult
+from .prompts import OPENING_PROMPT, SESSION_CARD_PROMPT
+from .store import ApplicationState, ConversationStatus, StateStore
 
 logger = logging.getLogger(__name__)
 
@@ -32,7 +36,7 @@ def is_authorized(
     )
 
 
-class SparringPartnerBot(commands.Bot):
+class SocraticPartnerBot(commands.Bot):
     """Discord bot restricted to one development guild, channel, and user."""
 
     def __init__(
@@ -40,6 +44,8 @@ class SparringPartnerBot(commands.Bot):
     ) -> None:
         intents = discord.Intents.none()
         intents.guilds = True
+        intents.messages = True
+        intents.message_content = True
         super().__init__(command_prefix=commands.when_mentioned, intents=intents)
         self.settings = settings
         self.store = store
@@ -58,6 +64,39 @@ class SparringPartnerBot(commands.Bot):
         if self.user is None:
             return
         logger.info("Connected to Discord as %s (%s).", self.user, self.user.id)
+        conversation = self.store.get_active_conversation()
+        if conversation is not None:
+            logger.info(
+                "Recovered %s conversation %s.", conversation.status, conversation.id
+            )
+
+    async def on_message(self, message: discord.Message) -> None:
+        if message.author.bot or not message.content.strip():
+            return
+        if not is_authorized(
+            self.settings,
+            guild_id=message.guild.id if message.guild else None,
+            channel_id=message.channel.id,
+            user_id=message.author.id,
+        ):
+            return
+
+        conversation = self.store.get_active_conversation()
+        if conversation is None or conversation.status is not ConversationStatus.OPEN:
+            return
+        if conversation.channel_id != message.channel.id:
+            return
+
+        try:
+            async with message.channel.typing():
+                result = await self.pi_client.prompt(message.content.strip())
+            self._record_agent_result(result)
+            await _reply_in_chunks(message, result.text)
+        except PiRpcError as exc:
+            logger.exception("Socratic conversation turn failed.")
+            self.store.record_agent_error(str(exc))
+            with suppress(discord.HTTPException):
+                await message.add_reaction("⚠️")
 
     async def close(self) -> None:
         await self.pi_client.close()
@@ -91,6 +130,13 @@ class SparringPartnerBot(commands.Bot):
                 return
 
             state = self.store.get_state()
+            conversation = self.store.get_active_conversation()
+            missing_permissions = _missing_delivery_permissions(interaction)
+            delivery_status = (
+                "ready"
+                if not missing_permissions
+                else f"blocked ({', '.join(missing_permissions)})"
+            )
             latency_ms = round(self.latency * 1000)
             command_state = "ready" if self._commands_synced else "synchronizing"
             await interaction.response.send_message(
@@ -100,9 +146,11 @@ class SparringPartnerBot(commands.Bot):
                         f"- Version: `{__version__}`",
                         "- Mode: `test`",
                         f"- State: `{state.status}`",
+                        f"- Conversation: `{_format_conversation(conversation)}`",
                         f"- Interval: `{_format_interval(state.interval_seconds)}`",
                         f"- Next activation: {_format_next_activation(state)}",
                         f"- Discord: `connected` ({latency_ms} ms)",
+                        f"- Channel delivery: `{delivery_status}`",
                         f"- Commands: `{command_state}`",
                         "- Persistence: `ready`",
                         f"- Agent runtime: `{_format_agent_runtime(self.pi_client)}`",
@@ -162,6 +210,107 @@ class SparringPartnerBot(commands.Bot):
                 ephemeral=True,
             )
 
+        @self.tree.command(name="ask-now", description="Start a Socratic conversation now.")
+        async def ask_now(interaction: discord.Interaction) -> None:
+            if not await self._require_authorized(interaction):
+                return
+            if self.store.get_active_conversation() is not None:
+                await interaction.response.send_message(
+                    "A Socratic conversation is already open. Use `/done` before starting another.",
+                    ephemeral=True,
+                )
+                return
+            if interaction.channel is None:
+                await interaction.response.send_message(
+                    "The configured conversation channel is unavailable.", ephemeral=True
+                )
+                return
+            missing_permissions = _missing_delivery_permissions(interaction)
+            if missing_permissions:
+                await interaction.response.send_message(
+                    "Automation Lab cannot post normal messages in this channel. Grant its "
+                    "bot role: " + ", ".join(missing_permissions) + ".",
+                    ephemeral=True,
+                )
+                return
+
+            await interaction.response.defer(ephemeral=True, thinking=True)
+            try:
+                await self.pi_client.new_session()
+                result = await self.pi_client.prompt(OPENING_PROMPT)
+                self._record_agent_result(result)
+                question_message = await interaction.channel.send(
+                    _truncate_discord_message(result.text)
+                )
+                self.store.start_conversation(
+                    conversation_id=uuid4().hex,
+                    channel_id=interaction.channel.id,
+                    question_message_id=question_message.id,
+                )
+            except (PiRpcError, discord.HTTPException, sqlite3.IntegrityError) as exc:
+                logger.exception("Could not start Socratic conversation.")
+                self.store.record_agent_error(str(exc))
+                await interaction.followup.send(
+                    "The conversation could not be started. Check the local logs and `/status`.",
+                    ephemeral=True,
+                )
+                return
+
+            await interaction.followup.send(
+                "A new Socratic conversation is open. Reply normally in this channel and use "
+                "`/done` when you want to close it.",
+                ephemeral=True,
+            )
+
+        @self.tree.command(name="done", description="Close the active Socratic conversation.")
+        async def done(interaction: discord.Interaction) -> None:
+            if not await self._require_authorized(interaction):
+                return
+            conversation = self.store.get_active_conversation()
+            if conversation is None:
+                await interaction.response.send_message(
+                    "There is no active Socratic conversation.", ephemeral=True
+                )
+                return
+            if conversation.channel_id != interaction.channel_id:
+                await interaction.response.send_message(
+                    "The active conversation belongs to another channel.", ephemeral=True
+                )
+                return
+
+            await interaction.response.defer(ephemeral=True, thinking=True)
+            if conversation.status is ConversationStatus.CLOSING:
+                conversation = self.store.reopen_conversation(conversation.id)
+            self.store.mark_conversation_closing(conversation.id)
+            try:
+                result = await self.pi_client.prompt(SESSION_CARD_PROMPT)
+                self._record_agent_result(result)
+                if interaction.channel is None:
+                    raise RuntimeError("Conversation channel became unavailable.")
+                await interaction.channel.send(
+                    _truncate_discord_message(
+                        f"**Provisional session card**\n{result.text}"
+                    )
+                )
+                state = self.store.complete_conversation(
+                    conversation.id, session_card=result.text
+                )
+            except (PiRpcError, discord.HTTPException, RuntimeError) as exc:
+                logger.exception("Could not complete Socratic conversation.")
+                self.store.record_agent_error(str(exc))
+                self.store.reopen_conversation(conversation.id)
+                await interaction.followup.send(
+                    "The conversation could not be closed safely and remains open. Retry `/done`.",
+                    ephemeral=True,
+                )
+                return
+
+            await interaction.followup.send(
+                "Conversation closed. The next interval begins from this completion point: "
+                f"{_format_next_activation(state)}.",
+                ephemeral=True,
+            )
+
         @self.tree.command(name="pause", description="Pause future Socratic Partner activation.")
         async def pause(interaction: discord.Interaction) -> None:
             if not await self._require_authorized(interaction):
@@ -190,6 +339,17 @@ class SparringPartnerBot(commands.Bot):
                 ephemeral=True,
             )
 
+    def _record_agent_result(self, result: PiRunResult) -> None:
+        self.store.record_agent_success(
+            session_id=result.session_id,
+            session_file=result.session_file,
+            provider=result.provider,
+            model_id=result.model_id,
+            input_tokens=result.input_tokens,
+            output_tokens=result.output_tokens,
+            cost=result.cost,
+        )
+
 
 async def on_app_command_error(
     interaction: discord.Interaction, error: app_commands.AppCommandError
@@ -201,6 +361,43 @@ async def on_app_command_error(
         await interaction.followup.send(message, ephemeral=True)
     else:
         await interaction.response.send_message(message, ephemeral=True)
+
+
+def _missing_delivery_permissions(interaction: discord.Interaction) -> list[str]:
+    guild = interaction.guild
+    channel = interaction.channel
+    if guild is None or guild.me is None or channel is None:
+        return ["View Channel", "Send Messages", "Read Message History"]
+    permissions_for = getattr(channel, "permissions_for", None)
+    if permissions_for is None:
+        return ["View Channel", "Send Messages", "Read Message History"]
+
+    permissions = permissions_for(guild.me)
+    required = (
+        ("view_channel", "View Channel"),
+        ("send_messages", "Send Messages"),
+        ("read_message_history", "Read Message History"),
+    )
+    return [label for attribute, label in required if not getattr(permissions, attribute)]
+
+
+async def _reply_in_chunks(message: discord.Message, text: str) -> None:
+    chunks = _discord_chunks(text)
+    await message.reply(chunks[0], mention_author=False)
+    for chunk in chunks[1:]:
+        await message.channel.send(chunk)
+
+
+def _discord_chunks(text: str, *, limit: int = 1_900) -> list[str]:
+    content = text.strip() or "(No text response.)"
+    return [content[index : index + limit] for index in range(0, len(content), limit)]
+
+
+def _truncate_discord_message(text: str, *, limit: int = 1_900) -> str:
+    content = text.strip() or "(No text response.)"
+    if len(content) <= limit:
+        return content
+    return f"{content[: limit - 3]}..."
 
 
 def _format_interval(interval_seconds: int) -> str:
@@ -216,6 +413,14 @@ def _format_next_activation(state: ApplicationState) -> str:
     absolute = discord.utils.format_dt(state.next_question_at, style="F")
     relative = discord.utils.format_dt(state.next_question_at, style="R")
     return f"{absolute} ({relative})"
+
+
+def _format_conversation(conversation: object | None) -> str:
+    if conversation is None:
+        return "none"
+    status = getattr(conversation, "status", "unknown")
+    identifier = str(getattr(conversation, "id", ""))[:8]
+    return f"{status} ({identifier})"
 
 
 def _format_agent_runtime(pi_client: PiRpcClient) -> str:
@@ -242,7 +447,7 @@ def _format_last_agent_call(state: ApplicationState) -> str:
 
 def create_bot(
     settings: Settings, store: StateStore, pi_client: PiRpcClient
-) -> SparringPartnerBot:
-    bot = SparringPartnerBot(settings, store, pi_client)
+) -> SocraticPartnerBot:
+    bot = SocraticPartnerBot(settings, store, pi_client)
     bot.tree.on_error = on_app_command_error
     return bot
