@@ -29,6 +29,19 @@ def test_loads_valid_environment() -> None:
     assert settings.pi_session_directory.as_posix() == "data/pi-sessions"
     assert settings.pi_model is None
     assert settings.pi_timeout_seconds == 120
+    assert settings.automatic_scheduler_enabled is False
+
+
+def test_explicitly_enables_automatic_scheduler() -> None:
+    """Autonomous behavior must remain opt-in while accepting the documented true value."""
+    environment = {
+        **VALID_ENVIRONMENT,
+        "SOCRATIC_PARTNER_AUTOMATIC_SCHEDULER_ENABLED": "true",
+    }
+
+    settings = Settings.from_environment(environment, env_file=None)
+
+    assert settings.automatic_scheduler_enabled is True
 
 
 def test_rejects_missing_secret() -> None:

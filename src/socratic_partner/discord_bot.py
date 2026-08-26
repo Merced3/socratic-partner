@@ -16,12 +16,14 @@ from .application import (
     ConversationNotOpen,
     MessageDeliveryFailed,
     NoActiveConversation,
+    OperationBusy,
     SocraticApplication,
     StatePersistenceFailed,
     WrongConversationChannel,
 )
 from .config import Settings
 from .errors import ClassifiedError, classify_error
+from .operation_gate import OperationGate, OperationLease
 from .pi_rpc import PiRpcClient, PiRpcError, PiRunResult
 from .store import ApplicationState, StateStore
 
@@ -58,11 +60,13 @@ class SocraticPartnerBot(commands.Bot):
         self.settings = settings
         self.store = store
         self.pi_client = pi_client
+        self.operation_gate = OperationGate()
         self._messenger = _DiscordConversationMessenger(self)
         self.conversation_service = SocraticApplication(
             store=store,
             agent=pi_client,
             messenger=self._messenger,
+            operation_gate=self.operation_gate,
         )
         self._commands_synced = False
         self._register_commands()
@@ -104,6 +108,11 @@ class SocraticPartnerBot(commands.Bot):
                 )
         except (NoActiveConversation, WrongConversationChannel, ConversationNotOpen):
             return
+        except OperationBusy as exc:
+            with suppress(discord.HTTPException):
+                await message.reply(
+                    f"{exc} Retry shortly.", mention_author=False
+                )
         except AgentRequestFailed as exc:
             logger.exception("Socratic conversation turn failed.")
             with suppress(discord.HTTPException):
@@ -187,12 +196,21 @@ class SocraticPartnerBot(commands.Bot):
             if not await self._require_authorized(interaction):
                 return
 
-            await interaction.response.defer(ephemeral=True, thinking=True)
+            lease = await _defer_then_acquire(
+                interaction,
+                self.operation_gate,
+                operation="running a Pi connectivity test",
+            )
+            if lease is None:
+                return
+
             try:
-                result = await self.pi_client.prompt(
-                    "This is a Socratic Partner connectivity test. Reply with one short "
-                    "sentence confirming that you can reason conversationally. Do not use tools."
-                )
+                async with lease:
+                    result = await self.pi_client.prompt(
+                        "This is a Socratic Partner connectivity test. Reply with one "
+                        "short sentence confirming that you can reason conversationally. "
+                        "Do not use tools."
+                    )
                 self.store.record_agent_success(
                     session_id=result.session_id,
                     session_file=result.session_file,
@@ -249,6 +267,9 @@ class SocraticPartnerBot(commands.Bot):
                 await self.conversation_service.start_conversation(
                     channel_id=interaction.channel.id
                 )
+            except OperationBusy as exc:
+                await interaction.followup.send(f"{exc} Retry shortly.", ephemeral=True)
+                return
             except ConversationAlreadyOpen:
                 await interaction.followup.send(
                     "A Socratic conversation is already open. Use `/done` before starting another.",
@@ -290,6 +311,9 @@ class SocraticPartnerBot(commands.Bot):
                 completed = await self.conversation_service.complete_conversation(
                     channel_id=interaction.channel_id
                 )
+            except OperationBusy as exc:
+                await interaction.followup.send(f"{exc} Retry shortly.", ephemeral=True)
+                return
             except NoActiveConversation:
                 await interaction.followup.send(
                     "There is no active Socratic conversation.", ephemeral=True
@@ -429,6 +453,27 @@ async def on_app_command_error(
         await interaction.followup.send(message, ephemeral=True)
     else:
         await interaction.response.send_message(message, ephemeral=True)
+
+
+async def _defer_then_acquire(
+    interaction: discord.Interaction,
+    operation_gate: OperationGate,
+    *,
+    operation: str,
+) -> OperationLease | None:
+    """Acknowledge a command before claiming work that must always be released."""
+    await interaction.response.defer(ephemeral=True, thinking=True)
+    lease = operation_gate.try_acquire(operation)
+    if lease is None:
+        await interaction.followup.send(
+            _busy_message(operation_gate), ephemeral=True
+        )
+    return lease
+
+
+def _busy_message(operation_gate: OperationGate) -> str:
+    operation = operation_gate.current_operation or "another model operation"
+    return f"Another model operation is active: {operation}. Retry shortly."
 
 
 def _missing_delivery_permissions(interaction: discord.Interaction) -> list[str]:

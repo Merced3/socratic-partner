@@ -31,6 +31,7 @@ class Settings:
     pi_session_directory: Path
     pi_model: str | None
     pi_timeout_seconds: int
+    automatic_scheduler_enabled: bool
 
     @classmethod
     def from_environment(
@@ -65,6 +66,9 @@ class Settings:
         pi_timeout_seconds = _positive_int_with_default(
             environment, "SOCRATIC_PARTNER_PI_TIMEOUT_SECONDS", default=120
         )
+        automatic_scheduler_enabled = _parse_bool(
+            environment.get("SOCRATIC_PARTNER_AUTOMATIC_SCHEDULER_ENABLED", "false")
+        )
 
         if not test_mode:
             raise ConfigurationError(
@@ -94,6 +98,7 @@ class Settings:
             pi_session_directory=Path(pi_session_directory_value),
             pi_model=pi_model,
             pi_timeout_seconds=pi_timeout_seconds,
+            automatic_scheduler_enabled=automatic_scheduler_enabled,
         )
 
 

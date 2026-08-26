@@ -8,6 +8,7 @@ from typing import Protocol
 from uuid import uuid4
 
 from .errors import ClassifiedError, classify_error
+from .operation_gate import OperationGate
 from .pi_rpc import PiRpcError, PiRunResult
 from .prompts import OPENING_PROMPT, SESSION_CARD_PROMPT
 from .store import ApplicationState, Conversation, ConversationStatus, StateStore
@@ -31,6 +32,12 @@ class ApplicationError(RuntimeError):
 
 class ConversationAlreadyOpen(ApplicationError):
     pass
+
+
+class OperationBusy(ApplicationError):
+    def __init__(self, operation: str) -> None:
+        super().__init__(f"Another model operation is active: {operation}.")
+        self.operation = operation
 
 
 class NoActiveConversation(ApplicationError):
@@ -80,12 +87,21 @@ class SocraticApplication:
         store: StateStore,
         agent: AgentRuntime,
         messenger: ConversationMessenger,
+        operation_gate: OperationGate,
     ) -> None:
         self.store = store
         self.agent = agent
         self.messenger = messenger
+        self.operation_gate = operation_gate
 
     async def start_conversation(self, *, channel_id: int) -> StartedConversation:
+        lease = self.operation_gate.try_acquire("starting a Socratic conversation")
+        if lease is None:
+            raise OperationBusy(self.operation_gate.current_operation or "unknown")
+        async with lease:
+            return await self._start_conversation(channel_id=channel_id)
+
+    async def _start_conversation(self, *, channel_id: int) -> StartedConversation:
         if self.store.get_active_conversation() is not None:
             raise ConversationAlreadyOpen("A Socratic conversation is already open.")
 
@@ -119,6 +135,21 @@ class SocraticApplication:
         reference: object,
         text: str,
     ) -> str:
+        lease = self.operation_gate.try_acquire("replying to a Socratic conversation")
+        if lease is None:
+            raise OperationBusy(self.operation_gate.current_operation or "unknown")
+        async with lease:
+            return await self._reply(
+                channel_id=channel_id, reference=reference, text=text
+            )
+
+    async def _reply(
+        self,
+        *,
+        channel_id: int,
+        reference: object,
+        text: str,
+    ) -> str:
         conversation = self._require_active_conversation(channel_id)
         if conversation.status is not ConversationStatus.OPEN:
             raise ConversationNotOpen("The Socratic conversation is not open for replies.")
@@ -137,6 +168,15 @@ class SocraticApplication:
         return result.text
 
     async def complete_conversation(self, *, channel_id: int) -> CompletedConversation:
+        lease = self.operation_gate.try_acquire("completing a Socratic conversation")
+        if lease is None:
+            raise OperationBusy(self.operation_gate.current_operation or "unknown")
+        async with lease:
+            return await self._complete_conversation(channel_id=channel_id)
+
+    async def _complete_conversation(
+        self, *, channel_id: int
+    ) -> CompletedConversation:
         conversation = self._require_active_conversation(channel_id)
         if conversation.status is ConversationStatus.CLOSING:
             conversation = self.store.reopen_conversation(conversation.id)
