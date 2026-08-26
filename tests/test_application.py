@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections import deque
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -10,6 +11,7 @@ import pytest
 from socratic_partner.application import (
     AgentRequestFailed,
     ConversationAlreadyOpen,
+    InvalidOperationLease,
     MessageDeliveryFailed,
     OperationBusy,
     SocraticApplication,
@@ -18,6 +20,7 @@ from socratic_partner.application import (
 from socratic_partner.errors import ErrorKind
 from socratic_partner.operation_gate import OperationGate
 from socratic_partner.pi_rpc import PiRpcError, PiRunResult
+from socratic_partner.scheduler import AutomaticScheduler, TickOutcome
 from socratic_partner.store import ApplicationStatus, ConversationStatus, StateStore
 
 
@@ -201,6 +204,66 @@ async def test_opening_delivery_failure_does_not_create_conversation(tmp_path) -
 
     assert store.get_active_conversation() is None
     assert store.get_state().last_error_kind == "infrastructure"
+
+
+async def test_claimed_automatic_kickoff_reuses_lease_and_active_state_suppresses_next_tick(
+    tmp_path,
+) -> None:
+    """Scheduler composition must avoid nested acquisition and rely on durable active state."""
+    now = datetime(2026, 8, 28, tzinfo=UTC)
+    store = _store(tmp_path / "state.sqlite3")
+    store.resume(now=now - timedelta(days=2))
+    gate = OperationGate()
+    agent = ScriptedAgent(["Automatic opening?"])
+    application = SocraticApplication(
+        store=store,
+        agent=agent,
+        messenger=RecordingMessenger(),
+        operation_gate=gate,
+    )
+
+    async def claimed_kickoff(lease) -> None:
+        await application.start_claimed_conversation(channel_id=100, lease=lease)
+
+    async def unexpected_notification(failure) -> None:
+        raise AssertionError("successful kickoff must not notify")
+
+    scheduler = AutomaticScheduler(
+        read_state=store.get_state,
+        read_active_conversation=store.get_active_conversation,
+        operation_gate=gate,
+        kickoff=claimed_kickoff,
+        notify_failure=unexpected_notification,
+    )
+
+    first = await scheduler.tick(now)
+    second = await scheduler.tick(now + timedelta(minutes=1))
+
+    assert first.outcome is TickOutcome.STARTED
+    assert second.outcome is TickOutcome.ACTIVE_CONVERSATION
+    assert agent.new_session_count == 1
+    assert store.get_active_conversation() is not None
+    assert gate.current_operation is None
+
+
+async def test_claimed_kickoff_rejects_a_foreign_or_released_lease(tmp_path) -> None:
+    """The public claimed path must not let adapters bypass this application's gate."""
+    application_gate = OperationGate()
+    foreign_gate = OperationGate()
+    application = SocraticApplication(
+        store=_store(tmp_path / "state.sqlite3"),
+        agent=ScriptedAgent(["Opening?"]),
+        messenger=RecordingMessenger(),
+        operation_gate=application_gate,
+    )
+    foreign = foreign_gate.try_acquire("automatic kickoff")
+    assert foreign is not None
+
+    with pytest.raises(InvalidOperationLease):
+        await application.start_claimed_conversation(channel_id=100, lease=foreign)
+
+    foreign.release()
+    assert application_gate.current_operation is None
 
 
 async def test_busy_start_fails_immediately_without_model_or_delivery_work(tmp_path) -> None:

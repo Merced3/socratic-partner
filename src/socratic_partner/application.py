@@ -8,7 +8,7 @@ from typing import Protocol
 from uuid import uuid4
 
 from .errors import ClassifiedError, classify_error
-from .operation_gate import OperationGate
+from .operation_gate import OperationGate, OperationLease
 from .pi_rpc import PiRpcError, PiRunResult
 from .prompts import OPENING_PROMPT, SESSION_CARD_PROMPT
 from .store import ApplicationState, Conversation, ConversationStatus, StateStore
@@ -38,6 +38,10 @@ class OperationBusy(ApplicationError):
     def __init__(self, operation: str) -> None:
         super().__init__(f"Another model operation is active: {operation}.")
         self.operation = operation
+
+
+class InvalidOperationLease(ApplicationError):
+    pass
 
 
 class NoActiveConversation(ApplicationError):
@@ -100,6 +104,16 @@ class SocraticApplication:
             raise OperationBusy(self.operation_gate.current_operation or "unknown")
         async with lease:
             return await self._start_conversation(channel_id=channel_id)
+
+    async def start_claimed_conversation(
+        self, *, channel_id: int, lease: OperationLease
+    ) -> StartedConversation:
+        """Start under a gate lease already acquired by an activation adapter."""
+        if not self.operation_gate.is_current(lease):
+            raise InvalidOperationLease(
+                "The supplied operation lease is not active on this application."
+            )
+        return await self._start_conversation(channel_id=channel_id)
 
     async def _start_conversation(self, *, channel_id: int) -> StartedConversation:
         if self.store.get_active_conversation() is not None:

@@ -42,6 +42,10 @@ class OperationGate:
     def current_operation(self) -> str | None:
         return self._lease.operation if self._lease is not None else None
 
+    def is_current(self, lease: OperationLease) -> bool:
+        """Return whether a lease is the gate's currently active claim."""
+        return self._lease is lease and not lease._released
+
     def try_acquire(self, operation: str) -> OperationLease | None:
         if not operation.strip():
             raise ValueError("operation must not be empty")

@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from contextlib import suppress
+from datetime import UTC, datetime
 
 import discord
 from discord import app_commands
@@ -25,6 +27,7 @@ from .config import Settings
 from .errors import ClassifiedError, classify_error
 from .operation_gate import OperationGate, OperationLease
 from .pi_rpc import PiRpcClient, PiRpcError, PiRunResult
+from .scheduler import AutomaticScheduler
 from .store import ApplicationState, StateStore
 
 logger = logging.getLogger(__name__)
@@ -68,6 +71,21 @@ class SocraticPartnerBot(commands.Bot):
             messenger=self._messenger,
             operation_gate=self.operation_gate,
         )
+        self.scheduler = (
+            AutomaticScheduler(
+                read_state=store.get_state,
+                read_active_conversation=store.get_active_conversation,
+                operation_gate=self.operation_gate,
+                kickoff=self._automatic_kickoff,
+                notify_failure=self._notify_automatic_failure,
+            )
+            if settings.automatic_scheduler_enabled
+            else None
+        )
+        self._scheduler_task: asyncio.Task[None] | None = None
+        self._scheduler_stopping = False
+        self._scheduler_sleep = asyncio.sleep
+        self._scheduler_clock = lambda: datetime.now(UTC)
         self._commands_synced = False
         self._register_commands()
 
@@ -79,6 +97,7 @@ class SocraticPartnerBot(commands.Bot):
         logger.info("Synchronized %d command(s) to the development guild.", len(synced))
 
     async def on_ready(self) -> None:
+        self._start_scheduler_once()
         if self.user is None:
             return
         logger.info("Connected to Discord as %s (%s).", self.user, self.user.id)
@@ -124,9 +143,55 @@ class SocraticPartnerBot(commands.Bot):
             logger.exception("Could not deliver Socratic conversation response.")
 
     async def close(self) -> None:
+        self._scheduler_stopping = True
+        task = self._scheduler_task
+        if task is not None:
+            task.cancel()
+            with suppress(asyncio.CancelledError):
+                await task
+            self._scheduler_task = None
         await self.pi_client.close()
         logger.info("Closing Discord connection.")
         await super().close()
+
+    def _start_scheduler_once(self) -> None:
+        if (
+            self.scheduler is None
+            or self._scheduler_stopping
+            or (self._scheduler_task is not None and not self._scheduler_task.done())
+        ):
+            return
+        self._scheduler_task = asyncio.create_task(
+            self._scheduler_loop(), name="automatic-scheduler"
+        )
+        logger.info("Automatic scheduler loop started.")
+
+    async def _scheduler_loop(self) -> None:
+        scheduler = self.scheduler
+        if scheduler is None:
+            return
+        while not self._scheduler_stopping:
+            try:
+                await scheduler.tick(self._scheduler_clock())
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                logger.exception("Automatic scheduler tick failed.")
+            await self._scheduler_sleep(60)
+
+    async def _automatic_kickoff(self, lease: OperationLease) -> None:
+        if self._scheduler_stopping:
+            return
+        await self.conversation_service.start_claimed_conversation(
+            channel_id=self.settings.discord_test_channel_id,
+            lease=lease,
+        )
+
+    async def _notify_automatic_failure(self, failure: ClassifiedError) -> None:
+        await self._messenger.send(
+            self.settings.discord_test_channel_id,
+            "**Automatic activation paused**\n" + failure.discord_message(),
+        )
 
     async def _require_authorized(self, interaction: discord.Interaction) -> bool:
         if is_authorized(
@@ -185,7 +250,8 @@ class SocraticPartnerBot(commands.Bot):
                         f"- Last recorded cost: `${state.last_cost:.6f}`",
                         f"- Last error category: `{state.last_error_kind or 'none'}`",
                         f"- Last error: `{_truncate_status(state.last_error or 'none')}`",
-                        "- Scheduler: `not running`",
+                        f"- Scheduler: `{_format_scheduler_status(self)}`",
+                        f"- Current operation: `{self.operation_gate.current_operation or 'idle'}`",
                     )
                 ),
                 ephemeral=True,
@@ -469,6 +535,17 @@ async def _defer_then_acquire(
             _busy_message(operation_gate), ephemeral=True
         )
     return lease
+
+
+def _format_scheduler_status(bot: SocraticPartnerBot) -> str:
+    if bot.scheduler is None:
+        return "disabled"
+    if bot.operation_gate.current_operation == "automatic kickoff":
+        return "running"
+    retry_at = bot.scheduler.retry_at
+    if retry_at is not None:
+        return f"enabled-idle; retry at {retry_at.isoformat()}"
+    return "enabled-idle"
 
 
 def _busy_message(operation_gate: OperationGate) -> str:

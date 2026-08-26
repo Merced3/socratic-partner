@@ -11,8 +11,10 @@ def test_gate_rejects_a_contender_without_waiting_and_reports_owner() -> None:
 
     assert lease is not None
     assert gate.current_operation == "starting a Socratic conversation"
+    assert gate.is_current(lease)
     assert gate.try_acquire("running a Pi connectivity test") is None
     lease.release()
+    assert not gate.is_current(lease)
 
 
 async def test_async_context_releases_claim_after_failure() -> None:
