@@ -26,6 +26,8 @@ If a request says to present a plan before changes, the response containing the 
 
 ## Automated validation
 
+Follow [`../tests/README.md`](../tests/README.md). User-visible behavior requires a black-box acceptance path; focused integration and unit tests provide supporting failure localization. Every new or modified test must explain why it exists and why it is not coupled unnecessarily to the current implementation.
+
 At minimum:
 
 ```powershell

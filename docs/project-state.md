@@ -3,7 +3,8 @@
 ## Known-good baseline
 
 - Branch: `main`
-- Commit: `7d2fcf0 Harden model failures and add interval control`
+- Runtime commit: `e92f724 Prevent Pi RPC history timeouts`
+- Documentation baseline: `d1034ef Document architecture and development safeguards`
 - SQLite schema: version 4
 - Scheduler: not implemented and not running
 - Automatic activation: not implemented
@@ -21,7 +22,8 @@
 - Provisional session card on `/done`
 - Completion-relative next activation timestamp
 - Provider-agnostic error categories
-- Detection of Pi assistant `stopReason: error`
+- Detection of Pi assistant `stopReason: error` from authoritative `message_end` events
+- Pi RPC recovery after reader/protocol timeout without fetching complete message history
 - Billing/authentication failures pause future automation state
 - Interval persistence across restart
 
@@ -38,6 +40,12 @@ It contains commits `ad9d526` and `827ceae`. Do not merge or cherry-pick it whol
 ## Runtime-data rollback
 
 The scheduler experiment migrated the private runtime database from schema 4 to 7. It was backed up and transactionally returned to schema 4. Non-pending conversation records, application state, session cards, and Pi session references were preserved. Scheduler-only pending/outbox state was removed.
+
+## Test status
+
+- Automated suite at runtime baseline: 39 passing tests
+- Manual `/ask-test` and `/ask-now` acceptance passed after the RPC history-timeout fix
+- Existing tests predate `tests/README.md` and require incremental rationale/black-box audit
 
 ## Next milestone
 

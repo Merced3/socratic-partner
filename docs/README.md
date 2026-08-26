@@ -5,3 +5,4 @@
 - [`development-workflow.md`](development-workflow.md) — approval, testing, migration, and Git process
 - [`automatic-scheduler.md`](automatic-scheduler.md) — bounded scheduler requirements and rollout
 - [`session-handoff.md`](session-handoff.md) — prompt template for a clean Pi session transition
+- [`../tests/README.md`](../tests/README.md) — black-box evidence and test-rationale policy

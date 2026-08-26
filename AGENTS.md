@@ -1,7 +1,7 @@
 # Working on Socratic Partner
 
-Read `README.md`, `docs/architecture.md`, `docs/project-state.md`, and
-`docs/development-workflow.md` before planning changes.
+Read `README.md`, `docs/architecture.md`, `docs/project-state.md`,
+`docs/development-workflow.md`, and `tests/README.md` before planning changes.
 
 ## Approval boundary
 
@@ -30,8 +30,10 @@ Use this sequence for each milestone:
 3. Present a bounded plan and wait for approval when requested.
 4. Implement the smallest change that proves the milestone.
 5. Run automated tests, Ruff, and `git diff --check`.
-6. Ask the user to perform the documented Discord/restart acceptance test.
-7. Commit and push only after live acceptance succeeds.
+6. Confirm user-visible behavior has a black-box acceptance path and every new/modified test
+   explains its purpose, regression risk, and resistance to overfitting.
+7. Ask the user to perform the documented Discord/restart acceptance test.
+8. Commit and push only after live acceptance succeeds.
 
 Do not commit merely because unit tests pass.
 
@@ -52,6 +54,7 @@ Do not commit merely because unit tests pass.
 - New autonomous behavior must default off until its manual and restart tests pass.
 - Manual Discord commands must remain usable and receive clear feedback while background work is active.
 - Keep changes reviewable. If a milestone grows unexpectedly, stop and re-plan.
+- Follow `tests/README.md`. Unit tests support black-box evidence; they do not replace it.
 
 ## Current state
 

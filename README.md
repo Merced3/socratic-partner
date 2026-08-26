@@ -127,6 +127,7 @@ Start with:
 - [`docs/development-workflow.md`](docs/development-workflow.md) — approval and acceptance process
 - [`docs/automatic-scheduler.md`](docs/automatic-scheduler.md) — bounded future scheduler design
 - [`docs/session-handoff.md`](docs/session-handoff.md) — clean new-session prompt template
+- [`tests/README.md`](tests/README.md) — black-box testing and test-rationale policy
 
 ## Validate
 
