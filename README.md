@@ -13,7 +13,8 @@ Implemented:
 - Environment-based configuration
 - Explicit guild, channel, and user allowlisting
 - Discord application-command registration
-- Private `/status`, `/ask-test`, `/ask-now`, `/done`, `/pause`, and `/resume` controls
+- Private `/status`, `/ask-test`, `/ask-now`, `/done`, `/interval`, `/pause`, and
+  `/resume` controls
 - Normal persistent Discord messages for Socratic conversations and session cards
 - One restart-recoverable active conversation at a time
 - Versioned Socratic behavior, opening, and session-card prompts
@@ -21,13 +22,16 @@ Implemented:
 - Persisted interval and planned next-activation timestamp
 - Isolated Pi RPC process with no tools or project resources
 - Persistent Pi session metadata and model usage records
+- Provider-agnostic billing, authentication, rate-limit, availability, and timeout errors
+- Detection of Pi assistant messages ending with `stopReason: error`
+- Automatic pause after billing or authentication failures
+- Optional model-suggested stopping points without automatic closure
 - Structured local logs
 - Clean Discord client shutdown
 
 Not implemented yet:
 
 - Active scheduling (the next timestamp is stored but not acted upon)
-- `/interval`
 - Discord source ingestion or long-term derived memory
 - Automatic conversation completion
 - Threads, reactions on session cards, or direct messages
@@ -103,8 +107,9 @@ socratic-partner
 
 When connected, use `/ask-now` to post the first persistent Socratic question. Reply normally
 in the configured channel, then use `/done` to generate a provisional session card and close
-the conversation. Control-command responses remain ephemeral; conversation messages and
-session cards remain visible in the channel.
+the conversation. Use `/interval` to set 1–720 hours between completed conversations.
+Control-command responses remain ephemeral; conversation messages and session cards remain
+visible in the channel.
 
 Commands are rejected unless all three values match the configured development boundary:
 

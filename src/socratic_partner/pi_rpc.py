@@ -175,6 +175,8 @@ class PiRpcClient:
             await self._request({"type": "prompt", "message": message})
             await self._wait_until_settled()
 
+            messages_response = await self._request({"type": "get_messages"})
+            _raise_for_assistant_error(_response_data(messages_response))
             text_response = await self._request({"type": "get_last_assistant_text"})
             state_response = await self._request({"type": "get_state"})
             stats_response = await self._request({"type": "get_session_stats"})
@@ -286,6 +288,42 @@ class PiRpcClient:
                 self._events.get_nowait()
             except asyncio.QueueEmpty:
                 return
+
+
+def _raise_for_assistant_error(data: dict[str, Any]) -> None:
+    messages = data.get("messages")
+    if not isinstance(messages, list):
+        raise PiRpcError("Pi RPC message history was not an array.")
+    assistant = next(
+        (
+            message
+            for message in reversed(messages)
+            if isinstance(message, dict) and message.get("role") == "assistant"
+        ),
+        None,
+    )
+    if assistant is None:
+        raise PiRpcError("Pi settled without an assistant message.")
+    if assistant.get("stopReason") != "error":
+        return
+
+    error_message = assistant.get("errorMessage")
+    if not isinstance(error_message, str) or not error_message.strip():
+        error_message = _assistant_text(assistant) or "Pi reported an unspecified provider error."
+    raise PiRpcError(error_message.strip())
+
+
+def _assistant_text(message: dict[str, Any]) -> str:
+    content = message.get("content")
+    if isinstance(content, str):
+        return content
+    if not isinstance(content, list):
+        return ""
+    return "\n".join(
+        str(item.get("text"))
+        for item in content
+        if isinstance(item, dict) and item.get("type") == "text" and item.get("text")
+    )
 
 
 def _response_data(response: dict[str, Any]) -> dict[str, Any]:

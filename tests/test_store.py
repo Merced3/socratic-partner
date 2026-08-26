@@ -142,6 +142,47 @@ def test_only_one_conversation_can_be_active(tmp_path) -> None:
         )
 
 
+def test_interval_updates_due_time_when_idle(tmp_path) -> None:
+    store = StateStore(tmp_path / "state.sqlite3", default_interval_seconds=86_400)
+    store.initialize()
+    changed_at = datetime(2026, 8, 25, 12, 0, tzinfo=UTC)
+
+    state = store.set_interval_hours(6, now=changed_at)
+
+    assert state.interval_seconds == 6 * 60 * 60
+    assert state.next_question_at == changed_at + timedelta(hours=6)
+
+
+def test_interval_waits_for_active_conversation_completion(tmp_path) -> None:
+    store = StateStore(tmp_path / "state.sqlite3", default_interval_seconds=86_400)
+    store.initialize()
+    changed_at = datetime(2026, 8, 25, 12, 0, tzinfo=UTC)
+    store.start_conversation(
+        conversation_id="conversation-1",
+        channel_id=100,
+        question_message_id=200,
+        now=changed_at,
+    )
+
+    state = store.set_interval_hours(6, now=changed_at)
+
+    assert state.interval_seconds == 6 * 60 * 60
+    assert state.next_question_at is None
+
+
+def test_billing_error_pauses_automation(tmp_path) -> None:
+    store = StateStore(tmp_path / "state.sqlite3", default_interval_seconds=86_400)
+    store.initialize()
+
+    state = store.record_agent_error(
+        "402 credits exhausted", kind="billing", pause_automation=True
+    )
+
+    assert state.status is ApplicationStatus.PAUSED
+    assert state.next_question_at is None
+    assert state.last_error_kind == "billing"
+
+
 def test_rejects_naive_operation_timestamp(tmp_path) -> None:
     store = StateStore(tmp_path / "state.sqlite3", default_interval_seconds=86_400)
     store.initialize()

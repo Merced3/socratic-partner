@@ -10,7 +10,7 @@ from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from pathlib import Path
 
-_SCHEMA_VERSION = 3
+_SCHEMA_VERSION = 4
 _SINGLETON_ID = 1
 
 
@@ -43,6 +43,7 @@ class ApplicationState:
     interval_seconds: int
     next_question_at: datetime | None
     last_error: str | None
+    last_error_kind: str | None
     pi_session_id: str | None
     pi_session_file: str | None
     last_agent_call_at: datetime | None
@@ -80,13 +81,16 @@ class StateStore:
                 version = 2
             if version == 2:
                 self._migrate_to_version_3(connection)
+                version = 3
+            if version == 3:
+                self._migrate_to_version_4(connection)
 
     def get_state(self) -> ApplicationState:
         with self._connection() as connection:
             row = connection.execute(
                 """
                 SELECT status, interval_seconds, next_question_at, last_error,
-                       pi_session_id, pi_session_file, last_agent_call_at,
+                       last_error_kind, pi_session_id, pi_session_file, last_agent_call_at,
                        last_provider, last_model_id, last_input_tokens,
                        last_output_tokens, last_cost, created_at, updated_at
                 FROM application_state
@@ -257,6 +261,40 @@ class StateStore:
             )
         return self.get_state()
 
+    def set_interval_hours(
+        self, hours: int, *, now: datetime | None = None
+    ) -> ApplicationState:
+        if hours <= 0:
+            raise ValueError("Interval hours must be positive.")
+        timestamp = _as_utc(now or datetime.now(UTC))
+        interval_seconds = hours * 60 * 60
+        with self._connection() as connection:
+            state = connection.execute(
+                "SELECT status FROM application_state WHERE id = ?", (_SINGLETON_ID,)
+            ).fetchone()
+            if state is None:
+                raise RuntimeError("Application state is missing.")
+            active = connection.execute(
+                "SELECT 1 FROM conversations WHERE status IN ('OPEN', 'CLOSING')"
+            ).fetchone()
+            next_question_at = None
+            if state["status"] == ApplicationStatus.WAITING and active is None:
+                next_question_at = (timestamp + timedelta(hours=hours)).isoformat()
+            connection.execute(
+                """
+                UPDATE application_state
+                SET interval_seconds = ?, next_question_at = ?, updated_at = ?
+                WHERE id = ?
+                """,
+                (
+                    interval_seconds,
+                    next_question_at,
+                    timestamp.isoformat(),
+                    _SINGLETON_ID,
+                ),
+            )
+        return self.get_state()
+
     def record_agent_success(
         self,
         *,
@@ -277,7 +315,7 @@ class StateStore:
                 SET pi_session_id = ?, pi_session_file = ?, last_agent_call_at = ?,
                     last_provider = ?, last_model_id = ?, last_input_tokens = ?,
                     last_output_tokens = ?, last_cost = ?, last_error = NULL,
-                    updated_at = ?
+                    last_error_kind = NULL, updated_at = ?
                 WHERE id = ?
                 """,
                 (
@@ -296,18 +334,34 @@ class StateStore:
         return self.get_state()
 
     def record_agent_error(
-        self, error: str, *, now: datetime | None = None
+        self,
+        error: str,
+        *,
+        kind: str = "unknown",
+        pause_automation: bool = False,
+        now: datetime | None = None,
     ) -> ApplicationState:
         timestamp = _as_utc(now or datetime.now(UTC))
         with self._connection() as connection:
-            connection.execute(
-                """
-                UPDATE application_state
-                SET last_error = ?, updated_at = ?
-                WHERE id = ?
-                """,
-                (error, timestamp.isoformat(), _SINGLETON_ID),
-            )
+            if pause_automation:
+                connection.execute(
+                    """
+                    UPDATE application_state
+                    SET last_error = ?, last_error_kind = ?, status = 'PAUSED',
+                        next_question_at = NULL, updated_at = ?
+                    WHERE id = ?
+                    """,
+                    (error, kind, timestamp.isoformat(), _SINGLETON_ID),
+                )
+            else:
+                connection.execute(
+                    """
+                    UPDATE application_state
+                    SET last_error = ?, last_error_kind = ?, updated_at = ?
+                    WHERE id = ?
+                    """,
+                    (error, kind, timestamp.isoformat(), _SINGLETON_ID),
+                )
         return self.get_state()
 
     @contextmanager
@@ -393,6 +447,10 @@ class StateStore:
         )
         connection.execute("PRAGMA user_version = 3")
 
+    def _migrate_to_version_4(self, connection: sqlite3.Connection) -> None:
+        connection.execute("ALTER TABLE application_state ADD COLUMN last_error_kind TEXT")
+        connection.execute("PRAGMA user_version = 4")
+
 
 def _conversation_from_row(row: sqlite3.Row) -> Conversation:
     return Conversation(
@@ -413,6 +471,7 @@ def _state_from_row(row: sqlite3.Row) -> ApplicationState:
         interval_seconds=row["interval_seconds"],
         next_question_at=_parse_datetime(row["next_question_at"]),
         last_error=row["last_error"],
+        last_error_kind=row["last_error_kind"],
         pi_session_id=row["pi_session_id"],
         pi_session_file=row["pi_session_file"],
         last_agent_call_at=_parse_datetime(row["last_agent_call_at"]),

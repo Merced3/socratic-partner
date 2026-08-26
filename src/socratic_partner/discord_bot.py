@@ -13,6 +13,7 @@ from discord.ext import commands
 
 from . import __version__
 from .config import Settings
+from .errors import ClassifiedError, classify_error
 from .pi_rpc import PiRpcClient, PiRpcError, PiRunResult
 from .prompts import OPENING_PROMPT, SESSION_CARD_PROMPT
 from .store import ApplicationState, ConversationStatus, StateStore
@@ -94,9 +95,12 @@ class SocraticPartnerBot(commands.Bot):
             await _reply_in_chunks(message, result.text)
         except PiRpcError as exc:
             logger.exception("Socratic conversation turn failed.")
-            self.store.record_agent_error(str(exc))
+            failure = self._record_agent_failure(exc)
             with suppress(discord.HTTPException):
-                await message.add_reaction("⚠️")
+                await message.reply(
+                    f"**Agent request failed**\n{failure.discord_message()}",
+                    mention_author=False,
+                )
 
     async def close(self) -> None:
         await self.pi_client.close()
@@ -158,7 +162,8 @@ class SocraticPartnerBot(commands.Bot):
                         f"- Model: `{_format_model(state)}`",
                         f"- Last agent call: {_format_last_agent_call(state)}",
                         f"- Last recorded cost: `${state.last_cost:.6f}`",
-                        f"- Last error: `{state.last_error or 'none'}`",
+                        f"- Last error category: `{state.last_error_kind or 'none'}`",
+                        f"- Last error: `{_truncate_status(state.last_error or 'none')}`",
                         "- Scheduler: `not running`",
                     )
                 ),
@@ -187,10 +192,9 @@ class SocraticPartnerBot(commands.Bot):
                 )
             except PiRpcError as exc:
                 logger.exception("Pi connectivity test failed.")
-                self.store.record_agent_error(str(exc))
+                failure = self._record_agent_failure(exc)
                 await interaction.followup.send(
-                    "Pi could not complete the test. Check the local logs and `/status`.",
-                    ephemeral=True,
+                    failure.discord_message(), ephemeral=True
                 )
                 return
 
@@ -247,11 +251,19 @@ class SocraticPartnerBot(commands.Bot):
                     channel_id=interaction.channel.id,
                     question_message_id=question_message.id,
                 )
-            except (PiRpcError, discord.HTTPException, sqlite3.IntegrityError) as exc:
+            except PiRpcError as exc:
                 logger.exception("Could not start Socratic conversation.")
-                self.store.record_agent_error(str(exc))
+                failure = self._record_agent_failure(exc)
                 await interaction.followup.send(
-                    "The conversation could not be started. Check the local logs and `/status`.",
+                    failure.discord_message(), ephemeral=True
+                )
+                return
+            except (discord.HTTPException, sqlite3.IntegrityError) as exc:
+                logger.exception("Could not persist or deliver Socratic conversation.")
+                self.store.record_agent_error(str(exc), kind="infrastructure")
+                await interaction.followup.send(
+                    "The conversation could not be delivered or saved. Check `/status` and the "
+                    "local logs.",
                     ephemeral=True,
                 )
                 return
@@ -295,9 +307,19 @@ class SocraticPartnerBot(commands.Bot):
                 state = self.store.complete_conversation(
                     conversation.id, session_card=result.text
                 )
-            except (PiRpcError, discord.HTTPException, RuntimeError) as exc:
+            except PiRpcError as exc:
                 logger.exception("Could not complete Socratic conversation.")
-                self.store.record_agent_error(str(exc))
+                failure = self._record_agent_failure(exc)
+                self.store.reopen_conversation(conversation.id)
+                await interaction.followup.send(
+                    failure.discord_message()
+                    + " The conversation remains open; retry `/done` when ready.",
+                    ephemeral=True,
+                )
+                return
+            except (discord.HTTPException, RuntimeError) as exc:
+                logger.exception("Could not deliver or persist conversation closure.")
+                self.store.record_agent_error(str(exc), kind="infrastructure")
                 self.store.reopen_conversation(conversation.id)
                 await interaction.followup.send(
                     "The conversation could not be closed safely and remains open. Retry `/done`.",
@@ -308,6 +330,27 @@ class SocraticPartnerBot(commands.Bot):
             await interaction.followup.send(
                 "Conversation closed. The next interval begins from this completion point: "
                 f"{_format_next_activation(state)}.",
+                ephemeral=True,
+            )
+
+        @self.tree.command(name="interval", description="Set hours between conversations.")
+        @app_commands.describe(hours="Whole hours from 1 to 720 (30 days).")
+        async def interval(
+            interaction: discord.Interaction,
+            hours: app_commands.Range[int, 1, 720],
+        ) -> None:
+            if not await self._require_authorized(interaction):
+                return
+
+            state = self.store.set_interval_hours(hours)
+            active = self.store.get_active_conversation()
+            timing = (
+                "It will apply when the current conversation closes."
+                if active is not None
+                else f"Planned activation: {_format_next_activation(state)}."
+            )
+            await interaction.response.send_message(
+                f"Interval set to **{_format_interval(state.interval_seconds)}**. {timing}",
                 ephemeral=True,
             )
 
@@ -349,6 +392,15 @@ class SocraticPartnerBot(commands.Bot):
             output_tokens=result.output_tokens,
             cost=result.cost,
         )
+
+    def _record_agent_failure(self, error: PiRpcError) -> ClassifiedError:
+        failure = classify_error(str(error))
+        self.store.record_agent_error(
+            failure.detail,
+            kind=failure.kind,
+            pause_automation=failure.should_pause_automation,
+        )
+        return failure
 
 
 async def on_app_command_error(
@@ -398,6 +450,11 @@ def _truncate_discord_message(text: str, *, limit: int = 1_900) -> str:
     if len(content) <= limit:
         return content
     return f"{content[: limit - 3]}..."
+
+
+def _truncate_status(text: str, *, limit: int = 160) -> str:
+    single_line = " ".join(text.split())
+    return single_line if len(single_line) <= limit else f"{single_line[: limit - 3]}..."
 
 
 def _format_interval(interval_seconds: int) -> str:
