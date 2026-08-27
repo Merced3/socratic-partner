@@ -56,29 +56,13 @@ These are the only remaining steps before the v0.1 development soak. Do not add 
 
 The opt-in `/test-interval` control is committed separately and remains hidden unless explicitly enabled.
 
-### 2. Fix the false typing indicator
+### 2. Fix the false typing indicator — implemented, pending one live confirmation
 
-Observed behavior: after `/done`, a normal message correctly receives no response, but Discord briefly displays “Automation Lab is typing.”
+The Discord adapter now checks for an open conversation before entering its typing context while retaining application-level validation for race safety. A focused regression test verifies that a message after `/done` does not start typing or make a model call.
 
-Cause: the Discord adapter enters the typing context before confirming that an open conversation exists.
+### 3. Final scheduler documentation — complete
 
-Required bounded fix:
-
-- Check for an open conversation and matching channel before entering the typing context.
-- Retain the application service’s internal validation for race safety.
-- Make no model call and show no typing indicator when no conversation is open.
-- Add one focused regression test where practical.
-- No schema, scheduler, or prompt changes.
-
-### 3. Final scheduler documentation
-
-After the typing fix passes:
-
-- Update `README.md` with scheduler and test-control settings.
-- Update `docs/automatic-scheduler.md` from planned to implemented semantics.
-- Update `docs/project-state.md` with controlled rollout evidence and current test count.
-- Update `tests/CONTRACTS.md` with scheduler evidence without overstating live guarantees.
-- Record that a forced clean missed-run test was deferred; automated overdue policy exists and real downtime may supply soak evidence.
+`README.md`, scheduler behavior, project state, and the contract matrix now describe the accepted implementation and controlled rollout. A forced clean missed-run test was deferred; automated overdue policy exists and real downtime may supply soak evidence.
 
 ### 4. Final feature-branch review and merge
 

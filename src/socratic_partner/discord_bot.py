@@ -28,7 +28,7 @@ from .errors import ClassifiedError, classify_error
 from .operation_gate import OperationGate, OperationLease
 from .pi_rpc import PiRpcClient, PiRpcError, PiRunResult
 from .scheduler import AutomaticScheduler
-from .store import ApplicationState, StateStore
+from .store import ApplicationState, ConversationStatus, StateStore
 
 logger = logging.getLogger(__name__)
 
@@ -115,6 +115,14 @@ class SocraticPartnerBot(commands.Bot):
             guild_id=message.guild.id if message.guild else None,
             channel_id=message.channel.id,
             user_id=message.author.id,
+        ):
+            return
+
+        conversation = self.store.get_active_conversation()
+        if (
+            conversation is None
+            or conversation.status is not ConversationStatus.OPEN
+            or conversation.channel_id != message.channel.id
         ):
             return
 

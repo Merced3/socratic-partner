@@ -22,18 +22,23 @@ This matrix records what evidence exists, its level, and important gaps. “Manu
 | Open conversation survives application reconstruction | Application workflow test + live process restart | Automated application black box + manual process test | Real Pi subprocess reconstruction remains manual |
 | `/done` behavior posts and stores a provisional session card | Application workflow test + live Discord acceptance | Automated application black box + manual external path | Thin Discord adapter remains manual |
 | `/status`, `/interval`, `/pause`, `/resume` Discord behavior | Live Discord acceptance | Manual black-box | Thin adapter/command contract tests |
+| Automatic activation occurs only when enabled, waiting, due, idle, and outside backoff | `test_scheduler.py` + controlled rollout | Deterministic policy + manual external path | Forced clean missed-run restart deferred to soak |
+| Competing model operations fail fast instead of waiting invisibly | Gate/application/adapter tests + live contention | Unit/application contract + manual external path | None for current single-process policy |
+| Automatic active conversation suppresses later due ticks and survives restart | Application/scheduler tests + controlled rollout | Automated application policy + manual process test | Rare Discord-accepted/pre-SQLite crash window accepted |
+| Short rollout interval is explicitly gated and durable | Config/command/store tests + live rollout | Automated contracts + manual external path | Test controls disabled during normal use |
+| Messages after `/done` do not show a false typing indicator | `test_message_after_closed_conversation_does_not_show_typing` | Thin adapter regression | Live confirmation pending before merge |
 | Channel permission preflight prevents paid undeliverable work | Live regression after Discord 403 | Manual black-box | Controlled Discord adapter test |
 | Installed CLI starts and shuts down cleanly | Manual terminal use | Manual black-box | Add subprocess smoke test with injected fake adapters |
 | Package metadata is importable | `test_package.py` | Minimal smoke | Does not prove wheel/CLI installation |
 | Schema versions 1–3 upgrade to version 4 without data loss | Historical fixtures in `test_store.py` preserve public state; v3 also preserves a completed conversation | Real temporary SQLite migration contract | Add new source-version fixtures before any future migration |
 | Start → reply → reconstruct → continue → complete works through public application operations | Application workflow test | Automated application black box | Real Discord/provider/process path remains bounded manual acceptance |
 
-## Priority gaps before automatic scheduling
+## Remaining bounded evidence
 
-The schema-upgrade and fake Pi RPC subprocess gaps are now covered by deterministic local
-contracts. Remaining useful evidence should stay bounded:
+Automatic scheduling has completed controlled rollout. Remaining evidence should not delay the soak unnecessarily:
 
-1. Add focused thin-adapter tests where they provide value without duplicating discord.py.
+1. Confirm the post-`/done` typing-indicator regression manually.
 2. Keep real Discord/provider testing opt-in and bounded; do not make CI depend on secrets, network availability, or model credits.
+3. Treat naturally occurring downtime during the soak as additional missed-run evidence rather than manufacturing more paid tests.
 
 Update this matrix whenever evidence changes. Do not upgrade “manual” to “automated” merely because a lower-level mock passed.

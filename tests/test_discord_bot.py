@@ -102,6 +102,32 @@ def test_short_interval_command_registration_requires_explicit_gate(
     assert (bot.tree.get_command("test-interval") is not None) is present
 
 
+async def test_message_after_closed_conversation_does_not_show_typing(tmp_path) -> None:
+    """A post-`/done` message must be ignored before Discord displays a typing indicator."""
+    bot = make_bot(tmp_path, scheduler_enabled=False)
+
+    class Author:
+        bot = False
+        id = SETTINGS.discord_allowed_user_id
+
+    class Guild:
+        id = SETTINGS.discord_guild_id
+
+    class Channel:
+        id = SETTINGS.discord_test_channel_id
+
+        def typing(self):
+            raise AssertionError("typing must not start without an open conversation")
+
+    class Message:
+        author = Author()
+        guild = Guild()
+        channel = Channel()
+        content = "wow so cool"
+
+    await bot.on_message(Message())
+
+
 async def test_failed_command_acknowledgement_does_not_claim_operation_gate() -> None:
     """A Discord acknowledgement failure must occur before acquisition so no lease is stranded."""
 
