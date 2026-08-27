@@ -124,6 +124,7 @@ Start with:
 - [`AGENTS.md`](AGENTS.md) — mandatory instructions for Pi development sessions
 - [`docs/architecture.md`](docs/architecture.md) — ownership and loop boundaries
 - [`docs/project-state.md`](docs/project-state.md) — current known-good state and next milestone
+- [`docs/roadmap.md`](docs/roadmap.md) — release plan and longer-term direction
 - [`docs/development-workflow.md`](docs/development-workflow.md) — approval and acceptance process
 - [`docs/automatic-scheduler.md`](docs/automatic-scheduler.md) — bounded future scheduler design
 - [`docs/session-handoff.md`](docs/session-handoff.md) — clean new-session prompt template
