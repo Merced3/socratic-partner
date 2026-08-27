@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from contextlib import suppress
+from datetime import UTC, datetime
 
 import discord
 from discord import app_commands
@@ -16,14 +18,17 @@ from .application import (
     ConversationNotOpen,
     MessageDeliveryFailed,
     NoActiveConversation,
+    OperationBusy,
     SocraticApplication,
     StatePersistenceFailed,
     WrongConversationChannel,
 )
 from .config import Settings
 from .errors import ClassifiedError, classify_error
+from .operation_gate import OperationGate, OperationLease
 from .pi_rpc import PiRpcClient, PiRpcError, PiRunResult
-from .store import ApplicationState, StateStore
+from .scheduler import AutomaticScheduler
+from .store import ApplicationState, ConversationStatus, StateStore
 
 logger = logging.getLogger(__name__)
 
@@ -58,12 +63,29 @@ class SocraticPartnerBot(commands.Bot):
         self.settings = settings
         self.store = store
         self.pi_client = pi_client
+        self.operation_gate = OperationGate()
         self._messenger = _DiscordConversationMessenger(self)
         self.conversation_service = SocraticApplication(
             store=store,
             agent=pi_client,
             messenger=self._messenger,
+            operation_gate=self.operation_gate,
         )
+        self.scheduler = (
+            AutomaticScheduler(
+                read_state=store.get_state,
+                read_active_conversation=store.get_active_conversation,
+                operation_gate=self.operation_gate,
+                kickoff=self._automatic_kickoff,
+                notify_failure=self._notify_automatic_failure,
+            )
+            if settings.automatic_scheduler_enabled
+            else None
+        )
+        self._scheduler_task: asyncio.Task[None] | None = None
+        self._scheduler_stopping = False
+        self._scheduler_sleep = asyncio.sleep
+        self._scheduler_clock = lambda: datetime.now(UTC)
         self._commands_synced = False
         self._register_commands()
 
@@ -75,6 +97,7 @@ class SocraticPartnerBot(commands.Bot):
         logger.info("Synchronized %d command(s) to the development guild.", len(synced))
 
     async def on_ready(self) -> None:
+        self._start_scheduler_once()
         if self.user is None:
             return
         logger.info("Connected to Discord as %s (%s).", self.user, self.user.id)
@@ -95,6 +118,14 @@ class SocraticPartnerBot(commands.Bot):
         ):
             return
 
+        conversation = self.store.get_active_conversation()
+        if (
+            conversation is None
+            or conversation.status is not ConversationStatus.OPEN
+            or conversation.channel_id != message.channel.id
+        ):
+            return
+
         try:
             async with message.channel.typing():
                 await self.conversation_service.reply(
@@ -104,6 +135,11 @@ class SocraticPartnerBot(commands.Bot):
                 )
         except (NoActiveConversation, WrongConversationChannel, ConversationNotOpen):
             return
+        except OperationBusy as exc:
+            with suppress(discord.HTTPException):
+                await message.reply(
+                    f"{exc} Retry shortly.", mention_author=False
+                )
         except AgentRequestFailed as exc:
             logger.exception("Socratic conversation turn failed.")
             with suppress(discord.HTTPException):
@@ -115,9 +151,55 @@ class SocraticPartnerBot(commands.Bot):
             logger.exception("Could not deliver Socratic conversation response.")
 
     async def close(self) -> None:
+        self._scheduler_stopping = True
+        task = self._scheduler_task
+        if task is not None:
+            task.cancel()
+            with suppress(asyncio.CancelledError):
+                await task
+            self._scheduler_task = None
         await self.pi_client.close()
         logger.info("Closing Discord connection.")
         await super().close()
+
+    def _start_scheduler_once(self) -> None:
+        if (
+            self.scheduler is None
+            or self._scheduler_stopping
+            or (self._scheduler_task is not None and not self._scheduler_task.done())
+        ):
+            return
+        self._scheduler_task = asyncio.create_task(
+            self._scheduler_loop(), name="automatic-scheduler"
+        )
+        logger.info("Automatic scheduler loop started.")
+
+    async def _scheduler_loop(self) -> None:
+        scheduler = self.scheduler
+        if scheduler is None:
+            return
+        while not self._scheduler_stopping:
+            try:
+                await scheduler.tick(self._scheduler_clock())
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                logger.exception("Automatic scheduler tick failed.")
+            await self._scheduler_sleep(60)
+
+    async def _automatic_kickoff(self, lease: OperationLease) -> None:
+        if self._scheduler_stopping:
+            return
+        await self.conversation_service.start_claimed_conversation(
+            channel_id=self.settings.discord_test_channel_id,
+            lease=lease,
+        )
+
+    async def _notify_automatic_failure(self, failure: ClassifiedError) -> None:
+        await self._messenger.send(
+            self.settings.discord_test_channel_id,
+            "**Automatic activation paused**\n" + failure.discord_message(),
+        )
 
     async def _require_authorized(self, interaction: discord.Interaction) -> bool:
         if is_authorized(
@@ -161,6 +243,8 @@ class SocraticPartnerBot(commands.Bot):
                         "**Socratic Partner — development status**",
                         f"- Version: `{__version__}`",
                         "- Mode: `test`",
+                        "- Test controls: "
+                        f"`{'enabled' if self.settings.test_controls_enabled else 'disabled'}`",
                         f"- State: `{state.status}`",
                         f"- Conversation: `{_format_conversation(conversation)}`",
                         f"- Interval: `{_format_interval(state.interval_seconds)}`",
@@ -176,7 +260,8 @@ class SocraticPartnerBot(commands.Bot):
                         f"- Last recorded cost: `${state.last_cost:.6f}`",
                         f"- Last error category: `{state.last_error_kind or 'none'}`",
                         f"- Last error: `{_truncate_status(state.last_error or 'none')}`",
-                        "- Scheduler: `not running`",
+                        f"- Scheduler: `{_format_scheduler_status(self)}`",
+                        f"- Current operation: `{self.operation_gate.current_operation or 'idle'}`",
                     )
                 ),
                 ephemeral=True,
@@ -187,12 +272,21 @@ class SocraticPartnerBot(commands.Bot):
             if not await self._require_authorized(interaction):
                 return
 
-            await interaction.response.defer(ephemeral=True, thinking=True)
+            lease = await _defer_then_acquire(
+                interaction,
+                self.operation_gate,
+                operation="running a Pi connectivity test",
+            )
+            if lease is None:
+                return
+
             try:
-                result = await self.pi_client.prompt(
-                    "This is a Socratic Partner connectivity test. Reply with one short "
-                    "sentence confirming that you can reason conversationally. Do not use tools."
-                )
+                async with lease:
+                    result = await self.pi_client.prompt(
+                        "This is a Socratic Partner connectivity test. Reply with one "
+                        "short sentence confirming that you can reason conversationally. "
+                        "Do not use tools."
+                    )
                 self.store.record_agent_success(
                     session_id=result.session_id,
                     session_file=result.session_file,
@@ -249,6 +343,9 @@ class SocraticPartnerBot(commands.Bot):
                 await self.conversation_service.start_conversation(
                     channel_id=interaction.channel.id
                 )
+            except OperationBusy as exc:
+                await interaction.followup.send(f"{exc} Retry shortly.", ephemeral=True)
+                return
             except ConversationAlreadyOpen:
                 await interaction.followup.send(
                     "A Socratic conversation is already open. Use `/done` before starting another.",
@@ -290,6 +387,9 @@ class SocraticPartnerBot(commands.Bot):
                 completed = await self.conversation_service.complete_conversation(
                     channel_id=interaction.channel_id
                 )
+            except OperationBusy as exc:
+                await interaction.followup.send(f"{exc} Retry shortly.", ephemeral=True)
+                return
             except NoActiveConversation:
                 await interaction.followup.send(
                     "There is no active Socratic conversation.", ephemeral=True
@@ -344,6 +444,34 @@ class SocraticPartnerBot(commands.Bot):
                 f"Interval set to **{_format_interval(state.interval_seconds)}**. {timing}",
                 ephemeral=True,
             )
+
+        if self.settings.test_mode and self.settings.test_controls_enabled:
+
+            @self.tree.command(
+                name="test-interval",
+                description="Set a short interval for controlled scheduler testing.",
+            )
+            @app_commands.describe(minutes="Whole minutes from 1 to 60 for testing only.")
+            async def test_interval(
+                interaction: discord.Interaction,
+                minutes: app_commands.Range[int, 1, 60],
+            ) -> None:
+                if not await self._require_authorized(interaction):
+                    return
+
+                state = self.store.set_interval_minutes(minutes)
+                active = self.store.get_active_conversation()
+                timing = (
+                    "It will apply when the current conversation closes."
+                    if active is not None
+                    else f"Planned activation: {_format_next_activation(state)}."
+                )
+                await interaction.response.send_message(
+                    "Short **test interval** set to "
+                    f"**{_format_interval(state.interval_seconds)}**. {timing} "
+                    "Restore `/interval` to the intended hours after testing.",
+                    ephemeral=True,
+                )
 
         @self.tree.command(name="pause", description="Pause future Socratic Partner activation.")
         async def pause(interaction: discord.Interaction) -> None:
@@ -431,6 +559,38 @@ async def on_app_command_error(
         await interaction.response.send_message(message, ephemeral=True)
 
 
+async def _defer_then_acquire(
+    interaction: discord.Interaction,
+    operation_gate: OperationGate,
+    *,
+    operation: str,
+) -> OperationLease | None:
+    """Acknowledge a command before claiming work that must always be released."""
+    await interaction.response.defer(ephemeral=True, thinking=True)
+    lease = operation_gate.try_acquire(operation)
+    if lease is None:
+        await interaction.followup.send(
+            _busy_message(operation_gate), ephemeral=True
+        )
+    return lease
+
+
+def _format_scheduler_status(bot: SocraticPartnerBot) -> str:
+    if bot.scheduler is None:
+        return "disabled"
+    if bot.operation_gate.current_operation == "automatic kickoff":
+        return "running"
+    retry_at = bot.scheduler.retry_at
+    if retry_at is not None:
+        return f"enabled-idle; retry at {retry_at.isoformat()}"
+    return "enabled-idle"
+
+
+def _busy_message(operation_gate: OperationGate) -> str:
+    operation = operation_gate.current_operation or "another model operation"
+    return f"Another model operation is active: {operation}. Retry shortly."
+
+
 def _missing_delivery_permissions(interaction: discord.Interaction) -> list[str]:
     guild = interaction.guild
     channel = interaction.channel
@@ -477,6 +637,9 @@ def _format_interval(interval_seconds: int) -> str:
     hours, remainder = divmod(interval_seconds, 60 * 60)
     if remainder == 0:
         return f"{hours} hour" if hours == 1 else f"{hours} hours"
+    minutes, remainder = divmod(interval_seconds, 60)
+    if remainder == 0:
+        return f"{minutes} minute" if minutes == 1 else f"{minutes} minutes"
     return f"{interval_seconds} seconds"
 
 

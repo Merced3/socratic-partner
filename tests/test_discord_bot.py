@@ -1,9 +1,26 @@
 """Authorization boundary permutations share one risk: private input crossing its allowlist."""
 
+import asyncio
+from contextlib import suppress
+from dataclasses import replace
+from datetime import UTC, datetime
 from pathlib import Path
+from types import SimpleNamespace
+
+import pytest
+from discord.ext import commands
 
 from socratic_partner.config import Settings
-from socratic_partner.discord_bot import is_authorized
+from socratic_partner.discord_bot import (
+    SocraticPartnerBot,
+    _defer_then_acquire,
+    _format_interval,
+    _format_scheduler_status,
+    is_authorized,
+)
+from socratic_partner.errors import ClassifiedError, ErrorKind
+from socratic_partner.operation_gate import OperationGate
+from socratic_partner.store import StateStore
 
 SETTINGS = Settings(
     discord_bot_token="test-token",
@@ -11,6 +28,7 @@ SETTINGS = Settings(
     discord_test_channel_id=200,
     discord_allowed_user_id=300,
     test_mode=True,
+    test_controls_enabled=False,
     log_level="INFO",
     database_path=Path("data/test.sqlite3"),
     default_interval_seconds=24 * 60 * 60,
@@ -18,6 +36,7 @@ SETTINGS = Settings(
     pi_session_directory=Path("data/pi-sessions"),
     pi_model=None,
     pi_timeout_seconds=120,
+    automatic_scheduler_enabled=False,
 )
 
 
@@ -39,3 +58,207 @@ def test_rejects_wrong_user() -> None:
 
 def test_rejects_direct_message() -> None:
     assert not is_authorized(SETTINGS, guild_id=None, channel_id=200, user_id=300)
+
+
+class FakePiClient:
+    def __init__(self, events: list[str] | None = None) -> None:
+        self.events = events
+        self.is_running = False
+
+    async def close(self) -> None:
+        if self.events is not None:
+            self.events.append("pi_closed")
+
+
+def make_bot(tmp_path, *, scheduler_enabled: bool) -> SocraticPartnerBot:
+    settings = replace(
+        SETTINGS,
+        database_path=tmp_path / "state.sqlite3",
+        automatic_scheduler_enabled=scheduler_enabled,
+    )
+    store = StateStore(settings.database_path, default_interval_seconds=86_400)
+    store.initialize()
+    return SocraticPartnerBot(settings, store, FakePiClient())
+
+
+@pytest.mark.parametrize(
+    ("enabled", "present"),
+    [(False, False), (True, True)],
+)
+def test_short_interval_command_registration_requires_explicit_gate(
+    tmp_path, enabled: bool, present: bool
+) -> None:
+    """Disabled rollout controls must be absent from Discord's synchronized command tree."""
+    settings = replace(
+        SETTINGS,
+        database_path=tmp_path / "state.sqlite3",
+        test_controls_enabled=enabled,
+    )
+    store = StateStore(settings.database_path, default_interval_seconds=86_400)
+    store.initialize()
+
+    bot = SocraticPartnerBot(settings, store, FakePiClient())
+
+    assert (bot.tree.get_command("test-interval") is not None) is present
+
+
+async def test_message_after_closed_conversation_does_not_show_typing(tmp_path) -> None:
+    """A post-`/done` message must be ignored before Discord displays a typing indicator."""
+    bot = make_bot(tmp_path, scheduler_enabled=False)
+
+    class Author:
+        bot = False
+        id = SETTINGS.discord_allowed_user_id
+
+    class Guild:
+        id = SETTINGS.discord_guild_id
+
+    class Channel:
+        id = SETTINGS.discord_test_channel_id
+
+        def typing(self):
+            raise AssertionError("typing must not start without an open conversation")
+
+    class Message:
+        author = Author()
+        guild = Guild()
+        channel = Channel()
+        content = "wow so cool"
+
+    await bot.on_message(Message())
+
+
+async def test_failed_command_acknowledgement_does_not_claim_operation_gate() -> None:
+    """A Discord acknowledgement failure must occur before acquisition so no lease is stranded."""
+
+    class FailingResponse:
+        async def defer(self, *, ephemeral: bool, thinking: bool) -> None:
+            raise RuntimeError("simulated acknowledgement failure")
+
+    class UnexpectedFollowup:
+        async def send(self, message: str, *, ephemeral: bool) -> None:
+            raise AssertionError("followup must not run when acknowledgement fails")
+
+    class Interaction:
+        response = FailingResponse()
+        followup = UnexpectedFollowup()
+
+    gate = OperationGate()
+
+    with pytest.raises(RuntimeError, match="simulated acknowledgement failure"):
+        await _defer_then_acquire(
+            Interaction(), gate, operation="running a Pi connectivity test"
+        )
+
+    assert gate.current_operation is None
+
+
+async def test_flag_off_and_repeated_ready_control_scheduler_task_count(tmp_path) -> None:
+    """Disabled deployments create no task; reconnect-ready events must not duplicate one."""
+    disabled = make_bot(tmp_path / "disabled", scheduler_enabled=False)
+    await disabled.on_ready()
+    assert disabled._scheduler_task is None
+
+    enabled = make_bot(tmp_path / "enabled", scheduler_enabled=True)
+    never_wake = asyncio.Event()
+
+    async def controlled_sleep(seconds: float) -> None:
+        assert seconds <= 60
+        await never_wake.wait()
+
+    enabled._scheduler_sleep = controlled_sleep
+    await enabled.on_ready()
+    first_task = enabled._scheduler_task
+    await enabled.on_ready()
+
+    assert first_task is not None
+    assert enabled._scheduler_task is first_task
+    first_task.cancel()
+    with suppress(asyncio.CancelledError):
+        await first_task
+
+
+async def test_shutdown_awaits_scheduler_before_pi_and_discord_close(
+    tmp_path, monkeypatch
+) -> None:
+    """Shutdown ordering prevents new background work after Pi teardown begins."""
+    events: list[str] = []
+    bot = make_bot(tmp_path, scheduler_enabled=True)
+    bot.pi_client = FakePiClient(events)
+
+    async def running_scheduler() -> None:
+        try:
+            await asyncio.Event().wait()
+        finally:
+            events.append("scheduler_stopped")
+
+    async def fake_discord_close(self) -> None:
+        events.append("discord_closed")
+
+    monkeypatch.setattr(commands.Bot, "close", fake_discord_close)
+    bot._scheduler_task = asyncio.create_task(running_scheduler())
+    await asyncio.sleep(0)
+
+    await bot.close()
+
+    assert events == ["scheduler_stopped", "pi_closed", "discord_closed"]
+    assert bot._scheduler_stopping is True
+
+
+@pytest.mark.parametrize(
+    ("seconds", "expected"),
+    [(60, "1 minute"), (120, "2 minutes"), (3_600, "1 hour")],
+)
+def test_interval_status_makes_short_test_timing_explicit(
+    seconds: int, expected: str
+) -> None:
+    """Operators must be able to see whether a risky short test interval is active."""
+    assert _format_interval(seconds) == expected
+
+
+def test_scheduler_status_formats_only_observed_runtime_state() -> None:
+    """Status distinguishes configuration, active work, and retry time without diagnosis."""
+    gate = OperationGate()
+    disabled = SimpleNamespace(scheduler=None, operation_gate=gate)
+    scheduler = SimpleNamespace(retry_at=None)
+    enabled = SimpleNamespace(scheduler=scheduler, operation_gate=gate)
+
+    assert _format_scheduler_status(disabled) == "disabled"
+    assert _format_scheduler_status(enabled) == "enabled-idle"
+
+    scheduler.retry_at = datetime(2026, 8, 28, tzinfo=UTC)
+    assert "retry at 2026-08-28T00:00:00+00:00" in _format_scheduler_status(enabled)
+
+    lease = gate.try_acquire("automatic kickoff")
+    assert lease is not None
+    assert _format_scheduler_status(enabled) == "running"
+    lease.release()
+
+
+@pytest.mark.parametrize("delivery_fails", [False, True])
+async def test_automatic_failure_notification_is_a_single_persistent_send(
+    tmp_path, delivery_fails: bool
+) -> None:
+    """Composition attempts one safe channel message and leaves best-effort handling to policy."""
+    bot = make_bot(tmp_path, scheduler_enabled=True)
+    sent: list[tuple[int, str]] = []
+
+    class Messenger:
+        async def send(self, channel_id: int, text: str) -> int:
+            sent.append((channel_id, text))
+            if delivery_fails:
+                raise RuntimeError("simulated Discord failure")
+            return 1
+
+    bot._messenger = Messenger()
+    failure = ClassifiedError(ErrorKind.BILLING, "raw provider detail")
+
+    if delivery_fails:
+        with pytest.raises(RuntimeError, match="simulated Discord failure"):
+            await bot._notify_automatic_failure(failure)
+    else:
+        await bot._notify_automatic_failure(failure)
+
+    assert len(sent) == 1
+    assert sent[0][0] == SETTINGS.discord_test_channel_id
+    assert "raw provider detail" not in sent[0][1]

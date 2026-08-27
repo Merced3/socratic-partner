@@ -1,71 +1,79 @@
 # Project State
 
-## Known-good baseline
+## Current revision
 
-- Branch: `main`
-- Current known-good revision: latest live-accepted commit on `main` (see `git log`)
+- Active branch: `feature/automatic-scheduler-v009`
+- Main baseline: `e2c7c0a Update project state after boundary tests`
+- Latest accepted feature commit: `ea6d8eb Finalize scheduler rollout documentation and UX`
+- Merge candidate: feature branch is live-accepted and awaiting final review/merge
 - SQLite schema: version 4
-- Scheduler: not implemented and not running
-- Automatic activation: not implemented
+- No `PENDING` state, durable outbox, or scheduler database migration
 
 ## Implemented and live-tested
 
 - Guarded Discord guild/channel/user boundary
-- Ephemeral control commands
+- Ephemeral control commands and persistent conversation messages
 - `/status`, `/ask-test`, `/ask-now`, `/done`, `/interval`, `/pause`, `/resume`
-- Persistent normal Discord conversation messages
-- One active conversation at a time
-- Pi RPC model calls with no tools or project resources
-- Fresh Pi session for `/ask-now`
-- Conversation recovery after process restart
-- Provisional session card on `/done`
-- Completion-relative next activation timestamp
-- Provider-agnostic error categories
-- Detection of Pi assistant `stopReason: error` from authoritative `message_end` events
-- Pi RPC recovery after reader/protocol timeout without fetching complete message history
-- Billing/authentication failures pause future automation state
-- Interval persistence across restart
-- Public `SocraticApplication` service used by Discord for start, reply, and completion
+- One restart-recoverable active conversation at a time
+- Pi RPC without tools or project resources
+- Fresh Pi session for each new conversation
+- Provisional session card and completion-relative next activation
+- Provider-independent error categories and Pi `stopReason: error` handling
+- Public `SocraticApplication` used by manual and automatic kickoff
+- Shared non-waiting operation gate with immediate busy feedback
+- Default-off automatic scheduler with bounded in-memory backoff
+- Opt-in `/test-interval` command hidden during normal use
+- Controlled automatic activation, active-conversation suppression, restart recovery, pause/resume, and feature-flag rollback
 
-## Preserved rollback
+## Controlled rollout result
 
-The abandoned scheduler experiment is retained locally on:
+Slice D completed with the following evidence:
+
+- Disabled scheduling left manual behavior unchanged.
+- Enabled-but-paused scheduling produced no question.
+- Automatic activation occurred within the 60-second polling window.
+- Exactly one opening appeared; later ticks were suppressed by the active conversation.
+- An active automatic conversation survived process restart with Pi context intact.
+- Replies, `/done`, and session-card generation worked after restart.
+- Pause cleared the due time; resume created a fresh due time and automatic activation worked.
+- Interval was restored to 24 hours.
+- Scheduler and test controls disabled successfully.
+- `/test-interval` disappeared when disabled.
+- `/ask-test` and the manual conversation loop still worked after rollback.
+
+A forced clean missed-run restart was intentionally deferred. Deterministic tests cover overdue coalescing, and naturally occurring downtime may provide additional soak evidence.
+
+## Test status
+
+- Automated suite including the final typing regression: 92 passing tests
+- Public application workflow covers start, reply, reconstruction, continuation, completion,
+  session-card storage, and next-interval timing with real temporary SQLite
+- Historical schema fixtures cover versions 1–3 upgrading to version 4
+- Cross-platform fake Pi subprocess covers framing, oversized events, assistant errors,
+  malformed output, timeout/reset, and client reuse
+- Scheduler policy, lifecycle, gate, backoff, feature flags, and short intervals are automated
+- Real Discord/provider/process behavior remains bounded manual acceptance
+
+See `tests/CONTRACTS.md` for the detailed evidence matrix.
+
+## Preserved experiments and backup
+
+The abandoned scheduler experiment remains on local branch:
 
 ```text
 scheduler-experiment-2026-08-26
 ```
 
-It contains commits `ad9d526` and `827ceae`. Do not merge or cherry-pick it wholesale. It may be consulted for tests or isolated ideas only after review.
+Do not merge or cherry-pick it wholesale. A pre-rollout database backup exists in ignored runtime storage. Runtime databases and backups must never be committed.
 
-## Runtime-data rollback
+## Immediate next steps
 
-The scheduler experiment migrated the private runtime database from schema 4 to 7. It was backed up and transactionally returned to schema 4. Non-pending conversation records, application state, session cards, and Pi session references were preserved. Scheduler-only pending/outbox state was removed.
+1. Review `main...feature/automatic-scheduler-v009` as a whole.
+2. Merge the accepted feature branch into `main` and push.
+3. Configure 24 hours, scheduler enabled, and test controls disabled.
+4. Begin the one-week normal-use soak described in `docs/roadmap.md`.
 
-## Test status
+## Version milestones
 
-- Automated suite: 53 passing tests
-- Full manual acceptance passed after the application-service refactor: `/status`, `/ask-test`, `/ask-now`, reply, restart, reply, `/done`, session card, `/interval`, `/pause`, and `/resume`
-- Existing suite audit is recorded in `tests/CONTRACTS.md`
-- Test rationale is documented at useful test/group granularity
-- Public application workflow coverage exercises start, reply, reconstruction, continuation, completion, session-card storage, and next-interval timing with real temporary SQLite
-- Historical SQLite fixtures verify that schemas 1, 2, and 3 migrate to schema 4 while preserving their public application state; the version 3 fixture also preserves a completed conversation and session card
-- A cross-platform fake Pi RPC subprocess exercises JSONL framing, oversized events, assistant errors, malformed output, timeout/reset, and successful client reuse after reset
-- Real Discord/provider/process behavior remains a bounded manual acceptance path
-
-## Next milestone
-
-Review `docs/automatic-scheduler.md` and design a deliberately small automatic scheduler behind a default-off feature flag. Obtain explicit approval before implementation and use a feature branch for autonomous/background behavior.
-
-## Definition of v0.09
-
-The project becomes v0.09 when automatic activation is enabled for a controlled soak test and:
-
-- Manual controls still work.
-- Restarts do not corrupt an active conversation.
-- Missed activation follows the documented policy.
-- Failures do not tight-loop or spam Discord.
-- Automatic activation can be disabled immediately.
-
-## Definition of v0.1
-
-After v0.09 runs for one week to the user's standards, with documented startup/restart behavior and no unresolved critical reliability issue, the project may be tagged v0.1.
+- Development soak: package remains `0.1.0.dev0`; “v0.09” is a project milestone, not a tag.
+- v0.1.0: tag only after the one-week soak, a tested Windows startup/restart procedure, current documentation, and no unresolved critical reliability defect.

@@ -23,12 +23,38 @@ def test_loads_valid_environment() -> None:
     assert settings.discord_test_channel_id == 200
     assert settings.discord_allowed_user_id == 300
     assert settings.test_mode is True
+    assert settings.test_controls_enabled is False
     assert settings.database_path.as_posix() == "data/socratic_partner.sqlite3"
     assert settings.default_interval_seconds == 24 * 60 * 60
     assert settings.pi_executable == "pi"
     assert settings.pi_session_directory.as_posix() == "data/pi-sessions"
     assert settings.pi_model is None
     assert settings.pi_timeout_seconds == 120
+    assert settings.automatic_scheduler_enabled is False
+
+
+def test_explicitly_enables_test_controls() -> None:
+    """Short live-test controls require a separate opt-in from the mandatory test mode."""
+    environment = {
+        **VALID_ENVIRONMENT,
+        "SOCRATIC_PARTNER_TEST_CONTROLS_ENABLED": "true",
+    }
+
+    settings = Settings.from_environment(environment, env_file=None)
+
+    assert settings.test_controls_enabled is True
+
+
+def test_explicitly_enables_automatic_scheduler() -> None:
+    """Autonomous behavior must remain opt-in while accepting the documented true value."""
+    environment = {
+        **VALID_ENVIRONMENT,
+        "SOCRATIC_PARTNER_AUTOMATIC_SCHEDULER_ENABLED": "true",
+    }
+
+    settings = Settings.from_environment(environment, env_file=None)
+
+    assert settings.automatic_scheduler_enabled is True
 
 
 def test_rejects_missing_secret() -> None:

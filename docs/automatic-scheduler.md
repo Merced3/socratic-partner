@@ -1,62 +1,95 @@
-# Automatic Scheduler Milestone
+# Automatic Scheduler
 
 ## Status
 
-Not implemented. The previous experiment was rolled back before publication because its scope and guarantees grew beyond what had been reviewed or live-tested.
+Implemented on `feature/automatic-scheduler-v009` and accepted through controlled rollout. The scheduler remains disabled by default and uses SQLite schema version 4 without scheduler-specific persistent state.
 
-## Goal
+## Boundary
 
-When automatic scheduling is explicitly enabled, start one new Socratic conversation after the persisted activation time becomes due.
+The scheduler handles generic timing and activation policy. It does not import Discord, Pi, Socratic prompts, or conversation content. Discord composition supplies:
 
-## Plain-language recommended defaults
+- Durable state readers
+- The shared non-waiting `OperationGate`
+- A claimed kickoff operation
+- A best-effort failure notification callback
 
-The user does not need to choose distributed-systems terminology unaided. Use these initial policies unless real usage demonstrates a need to change them.
+The application validates the scheduler's active lease and runs the same conversation kickoff behavior used by `/ask-now` without trying to acquire the gate twice.
 
-### Delivery guarantee
+## Eligibility
 
-Prefer a small, understandable implementation over a claim of perfect exactly-once delivery. Only one scheduler task runs in one process. It should prevent ordinary duplicate activation, but v0.09 may document a very small ambiguous crash window between Discord accepting a message and SQLite recording it.
+One kickoff may be attempted when:
 
-Do not introduce a durable outbox or a new `PENDING` conversation state without separate review and approval.
+- Automatic scheduling is enabled
+- Application state is `WAITING`
+- `next_question_at` exists and is due in UTC
+- No `OPEN` or `CLOSING` conversation exists
+- In-memory retry backoff has elapsed
+- The shared operation gate can be acquired immediately
 
-### Missed run
+Eligibility is checked again after gate acquisition. Manual model operations never wait silently: they either acquire the same gate or receive immediate busy feedback.
 
-If the computer was off when a question became due, ask once after startup. Do not generate one question for every missed interval. The next interval begins when that conversation is closed.
+## Timing and missed runs
 
-### Default state
+The runtime checks policy at startup and at a bounded 60-second interval. If the process was off past a due time, elapsed intervals coalesce into one kickoff attempt; it does not replay every missed interval. An active conversation suppresses further activation. After `/done`, the next due time is calculated from successful completion.
 
-Automatic scheduling defaults **off** behind a configuration feature flag. Manual `/ask-now` continues to work. Enable the scheduler only for the controlled v0.09 soak test.
+## Failure policy
 
-### Manual priority
+- Billing/authentication: application state becomes durably `PAUSED`, the due time is cleared, and one best-effort safe Discord notification is attempted for that failure.
+- Rate limit/provider outage/timeout: persisted due time remains unchanged and in-memory exponential backoff prevents a tight retry loop.
+- Internal backoff begins at 60 seconds, doubles, and caps at 60 minutes.
+- An explicit provider `Retry-After` is never shortened or capped by the internal maximum.
+- Notification and retry state are not persisted in v0.1.
+- Pi assistant messages ending with `stopReason: error` are never accepted as questions.
 
-If a manual command and automatic activation collide, return a clear busy response or allow the manual action to win before model generation begins. Never silently ignore a manual command.
+Restart clears in-memory backoff, so an overdue activation receives one startup attempt.
 
-### Pi contention
+## Delivery guarantee
 
-Only one Pi model run may execute at a time. A background activation must not make `/ask-test`, `/done`, or a conversation reply appear hung without explanation. Expose busy state and bound waits. Do not diagnose contention without logs.
+The implementation prevents ordinary duplicate activation within one process but does not claim exactly-once Discord delivery. A small ambiguous crash window remains:
 
-### Failure behavior
+```text
+Discord accepts opening question
+        ↓
+process crashes before SQLite records the conversation
+        ↓
+restart may post a second opening
+```
 
-- Billing/authentication: pause automatic scheduling and notify once after confirmed delivery.
-- Rate limit/provider outage: use bounded backoff and no tight retry loop.
-- Unknown failure: preserve manual controls and report through status/logs.
-- Never treat a Pi assistant error as a successful question.
+This accepted v0.1 limitation avoids an unproven durable outbox or `PENDING` conversation state.
 
-### Rollout
+## Configuration
 
-1. Implement behind a default-off flag.
-2. Test scheduler logic with a fake clock and fake kickoff operation.
-3. Verify manual behavior with the flag off.
-4. Enable a short interval in the private test deployment.
-5. Test restart before due, after due, and during an active conversation.
-6. Restore the intended 24-hour interval.
-7. Begin the one-week v0.09 soak test.
+```dotenv
+SOCRATIC_PARTNER_AUTOMATIC_SCHEDULER_ENABLED=false
+SOCRATIC_PARTNER_TEST_CONTROLS_ENABLED=false
+```
 
-### Rollback
+Missing values default to false and changes require restart.
 
-Disabling the feature flag must restore manual-only operation without a database downgrade. Prefer no schema change for the first scheduler slice. If a migration becomes necessary, stop and obtain approval with a separate rollback plan.
+For a supervised rollout only, enable test controls and use:
 
-## Required code boundary
+```text
+/test-interval minutes:1-60
+```
 
-Refactor kickoff into one application operation used by `/ask-now` and the scheduler. The scheduler calls that operation but does not import or interpret Socratic prompt text.
+After testing, restore `/interval hours:24`, disable test controls, and restart. Disabling the scheduler is the immediate rollback and requires no database migration.
 
-The first implementation plan must identify exact files and tests, then stop for approval.
+## Controlled rollout evidence
+
+Observed manually on the private deployment:
+
+- Disabled mode preserved the complete manual conversation loop.
+- Enabled-but-paused mode produced no activation.
+- Automatic activation occurred within the polling window.
+- One opening appeared and active-conversation state suppressed later ticks.
+- The active conversation survived process restart and retained Pi context.
+- Reply and `/done` worked after restart.
+- Pause removed the due time; resume established a fresh due time and activated normally.
+- Scheduler and test controls disabled cleanly; `/test-interval` disappeared.
+- Manual `/ask-test` and `/ask-now` continued to work after rollback.
+
+A forced clean missed-run restart was deferred. Deterministic policy tests cover overdue coalescing; naturally occurring downtime may add live evidence during the soak.
+
+## Process supervision
+
+This scheduler decides when a conversation is due only while the process is running. Windows Task Scheduler, a Windows service, systemd, or another operating-system facility must eventually own startup and process restart.

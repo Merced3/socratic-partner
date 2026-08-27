@@ -18,8 +18,7 @@ C:\Users\merce\Documents\Pi-Work-Station\socratic-partner
 Before planning or changing files:
 
 1. Read AGENTS.md completely and follow its approval boundary.
-2. Read README.md, docs/architecture.md, docs/project-state.md,
-   docs/development-workflow.md, and the document for the requested milestone.
+2. Read README.md, docs/architecture.md, docs/project-state.md, docs/roadmap.md, docs/development-workflow.md, and the document for the requested milestone.
 3. Inspect recent Git history and confirm the working tree/branch.
 4. Run the existing tests.
 5. Never read .env or expose private runtime data.

@@ -163,6 +163,28 @@ def test_interval_updates_due_time_when_idle(tmp_path) -> None:
     assert state.next_question_at == changed_at + timedelta(hours=6)
 
 
+def test_short_test_interval_uses_normal_durable_timing_and_pause_rules(tmp_path) -> None:
+    """Fast live tests must exercise persisted scheduling without bypassing pause safety."""
+    database = tmp_path / "state.sqlite3"
+    store = StateStore(database, default_interval_seconds=86_400)
+    store.initialize()
+    changed_at = datetime(2026, 8, 25, 12, 0, tzinfo=UTC)
+
+    state = store.set_interval_minutes(2, now=changed_at)
+
+    assert state.interval_seconds == 2 * 60
+    assert state.next_question_at == changed_at + timedelta(minutes=2)
+    restarted = StateStore(database, default_interval_seconds=86_400)
+    assert restarted.get_state().interval_seconds == 2 * 60
+
+    store.pause(now=changed_at + timedelta(seconds=1))
+    paused = store.set_interval_minutes(3, now=changed_at + timedelta(seconds=2))
+
+    assert paused.status is ApplicationStatus.PAUSED
+    assert paused.interval_seconds == 3 * 60
+    assert paused.next_question_at is None
+
+
 def test_interval_waits_for_active_conversation_completion(tmp_path) -> None:
     """An active session owns timing until `/done`; interval changes must not schedule over it."""
     store = StateStore(tmp_path / "state.sqlite3", default_interval_seconds=86_400)
