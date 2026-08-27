@@ -4,8 +4,8 @@
 
 - Active branch: `feature/automatic-scheduler-v009`
 - Main baseline: `e2c7c0a Update project state after boundary tests`
-- Latest accepted feature commit: `0976114 Add opt-in short scheduler test interval`
-- Uncommitted finalization: post-`/done` typing fix and release documentation
+- Latest accepted feature commit: `ea6d8eb Finalize scheduler rollout documentation and UX`
+- Merge candidate: feature branch is live-accepted and awaiting final review/merge
 - SQLite schema: version 4
 - No `PENDING` state, durable outbox, or scheduler database migration
 
@@ -68,13 +68,10 @@ Do not merge or cherry-pick it wholesale. A pre-rollout database backup exists i
 
 ## Immediate next steps
 
-1. Validate the post-`/done` typing-indicator fix locally and once through Discord.
-2. Run the full suite, Ruff, and `git diff --check`.
-3. Review `main...feature/automatic-scheduler-v009` as a whole.
-4. Commit finalization and push the feature branch.
-5. Merge the accepted feature branch into `main` and push.
-6. Configure 24 hours, scheduler enabled, and test controls disabled.
-7. Begin the one-week normal-use soak described in `docs/roadmap.md`.
+1. Review `main...feature/automatic-scheduler-v009` as a whole.
+2. Merge the accepted feature branch into `main` and push.
+3. Configure 24 hours, scheduler enabled, and test controls disabled.
+4. Begin the one-week normal-use soak described in `docs/roadmap.md`.
 
 ## Version milestones
 

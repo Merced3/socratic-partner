@@ -56,9 +56,9 @@ These are the only remaining steps before the v0.1 development soak. Do not add 
 
 The opt-in `/test-interval` control is committed separately and remains hidden unless explicitly enabled.
 
-### 2. Fix the false typing indicator — implemented, pending one live confirmation
+### 2. Fix the false typing indicator — complete
 
-The Discord adapter now checks for an open conversation before entering its typing context while retaining application-level validation for race safety. A focused regression test verifies that a message after `/done` does not start typing or make a model call.
+The Discord adapter now checks for an open conversation before entering its typing context while retaining application-level validation for race safety. Automated and live regression checks confirm that a message after `/done` does not start typing or make a model call.
 
 ### 3. Final scheduler documentation — complete
 

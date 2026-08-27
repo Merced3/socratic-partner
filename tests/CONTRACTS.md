@@ -26,7 +26,7 @@ This matrix records what evidence exists, its level, and important gaps. “Manu
 | Competing model operations fail fast instead of waiting invisibly | Gate/application/adapter tests + live contention | Unit/application contract + manual external path | None for current single-process policy |
 | Automatic active conversation suppresses later due ticks and survives restart | Application/scheduler tests + controlled rollout | Automated application policy + manual process test | Rare Discord-accepted/pre-SQLite crash window accepted |
 | Short rollout interval is explicitly gated and durable | Config/command/store tests + live rollout | Automated contracts + manual external path | Test controls disabled during normal use |
-| Messages after `/done` do not show a false typing indicator | `test_message_after_closed_conversation_does_not_show_typing` | Thin adapter regression | Live confirmation pending before merge |
+| Messages after `/done` do not show a false typing indicator | Adapter regression + live confirmation | Automated thin-adapter regression + manual external path | None for observed defect |
 | Channel permission preflight prevents paid undeliverable work | Live regression after Discord 403 | Manual black-box | Controlled Discord adapter test |
 | Installed CLI starts and shuts down cleanly | Manual terminal use | Manual black-box | Add subprocess smoke test with injected fake adapters |
 | Package metadata is importable | `test_package.py` | Minimal smoke | Does not prove wheel/CLI installation |
