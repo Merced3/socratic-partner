@@ -279,8 +279,20 @@ class StateStore:
     ) -> ApplicationState:
         if hours <= 0:
             raise ValueError("Interval hours must be positive.")
+        return self._set_interval_seconds(hours * 60 * 60, now=now)
+
+    def set_interval_minutes(
+        self, minutes: int, *, now: datetime | None = None
+    ) -> ApplicationState:
+        """Set a short interval for controlled testing through normal durable state."""
+        if minutes <= 0:
+            raise ValueError("Interval minutes must be positive.")
+        return self._set_interval_seconds(minutes * 60, now=now)
+
+    def _set_interval_seconds(
+        self, interval_seconds: int, *, now: datetime | None = None
+    ) -> ApplicationState:
         timestamp = _as_utc(now or datetime.now(UTC))
-        interval_seconds = hours * 60 * 60
         with self._connection() as connection:
             state = connection.execute(
                 "SELECT status FROM application_state WHERE id = ?", (_SINGLETON_ID,)
@@ -292,7 +304,9 @@ class StateStore:
             ).fetchone()
             next_question_at = None
             if state["status"] == ApplicationStatus.WAITING and active is None:
-                next_question_at = (timestamp + timedelta(hours=hours)).isoformat()
+                next_question_at = (
+                    timestamp + timedelta(seconds=interval_seconds)
+                ).isoformat()
             connection.execute(
                 """
                 UPDATE application_state

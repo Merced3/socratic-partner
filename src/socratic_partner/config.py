@@ -24,6 +24,7 @@ class Settings:
     discord_test_channel_id: int
     discord_allowed_user_id: int
     test_mode: bool
+    test_controls_enabled: bool
     log_level: str
     database_path: Path
     default_interval_seconds: int
@@ -50,6 +51,9 @@ class Settings:
         channel_id = _required_positive_int(environment, "DISCORD_TEST_CHANNEL_ID")
         user_id = _required_positive_int(environment, "DISCORD_ALLOWED_USER_ID")
         test_mode = _parse_bool(environment.get("SOCRATIC_PARTNER_TEST_MODE", "true"))
+        test_controls_enabled = _parse_bool(
+            environment.get("SOCRATIC_PARTNER_TEST_CONTROLS_ENABLED", "false")
+        )
         log_level = environment.get("SOCRATIC_PARTNER_LOG_LEVEL", "INFO").strip().upper()
         database_path_value = environment.get(
             "SOCRATIC_PARTNER_DATABASE_PATH", "data/socratic_partner.sqlite3"
@@ -91,6 +95,7 @@ class Settings:
             discord_test_channel_id=channel_id,
             discord_allowed_user_id=user_id,
             test_mode=test_mode,
+            test_controls_enabled=test_controls_enabled,
             log_level=log_level,
             database_path=database_path,
             default_interval_seconds=default_interval_hours * 60 * 60,

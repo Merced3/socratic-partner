@@ -14,6 +14,7 @@ from socratic_partner.config import Settings
 from socratic_partner.discord_bot import (
     SocraticPartnerBot,
     _defer_then_acquire,
+    _format_interval,
     _format_scheduler_status,
     is_authorized,
 )
@@ -27,6 +28,7 @@ SETTINGS = Settings(
     discord_test_channel_id=200,
     discord_allowed_user_id=300,
     test_mode=True,
+    test_controls_enabled=False,
     log_level="INFO",
     database_path=Path("data/test.sqlite3"),
     default_interval_seconds=24 * 60 * 60,
@@ -77,6 +79,27 @@ def make_bot(tmp_path, *, scheduler_enabled: bool) -> SocraticPartnerBot:
     store = StateStore(settings.database_path, default_interval_seconds=86_400)
     store.initialize()
     return SocraticPartnerBot(settings, store, FakePiClient())
+
+
+@pytest.mark.parametrize(
+    ("enabled", "present"),
+    [(False, False), (True, True)],
+)
+def test_short_interval_command_registration_requires_explicit_gate(
+    tmp_path, enabled: bool, present: bool
+) -> None:
+    """Disabled rollout controls must be absent from Discord's synchronized command tree."""
+    settings = replace(
+        SETTINGS,
+        database_path=tmp_path / "state.sqlite3",
+        test_controls_enabled=enabled,
+    )
+    store = StateStore(settings.database_path, default_interval_seconds=86_400)
+    store.initialize()
+
+    bot = SocraticPartnerBot(settings, store, FakePiClient())
+
+    assert (bot.tree.get_command("test-interval") is not None) is present
 
 
 async def test_failed_command_acknowledgement_does_not_claim_operation_gate() -> None:
@@ -154,6 +177,17 @@ async def test_shutdown_awaits_scheduler_before_pi_and_discord_close(
 
     assert events == ["scheduler_stopped", "pi_closed", "discord_closed"]
     assert bot._scheduler_stopping is True
+
+
+@pytest.mark.parametrize(
+    ("seconds", "expected"),
+    [(60, "1 minute"), (120, "2 minutes"), (3_600, "1 hour")],
+)
+def test_interval_status_makes_short_test_timing_explicit(
+    seconds: int, expected: str
+) -> None:
+    """Operators must be able to see whether a risky short test interval is active."""
+    assert _format_interval(seconds) == expected
 
 
 def test_scheduler_status_formats_only_observed_runtime_state() -> None:

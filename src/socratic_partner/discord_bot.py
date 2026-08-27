@@ -235,6 +235,8 @@ class SocraticPartnerBot(commands.Bot):
                         "**Socratic Partner — development status**",
                         f"- Version: `{__version__}`",
                         "- Mode: `test`",
+                        "- Test controls: "
+                        f"`{'enabled' if self.settings.test_controls_enabled else 'disabled'}`",
                         f"- State: `{state.status}`",
                         f"- Conversation: `{_format_conversation(conversation)}`",
                         f"- Interval: `{_format_interval(state.interval_seconds)}`",
@@ -435,6 +437,34 @@ class SocraticPartnerBot(commands.Bot):
                 ephemeral=True,
             )
 
+        if self.settings.test_mode and self.settings.test_controls_enabled:
+
+            @self.tree.command(
+                name="test-interval",
+                description="Set a short interval for controlled scheduler testing.",
+            )
+            @app_commands.describe(minutes="Whole minutes from 1 to 60 for testing only.")
+            async def test_interval(
+                interaction: discord.Interaction,
+                minutes: app_commands.Range[int, 1, 60],
+            ) -> None:
+                if not await self._require_authorized(interaction):
+                    return
+
+                state = self.store.set_interval_minutes(minutes)
+                active = self.store.get_active_conversation()
+                timing = (
+                    "It will apply when the current conversation closes."
+                    if active is not None
+                    else f"Planned activation: {_format_next_activation(state)}."
+                )
+                await interaction.response.send_message(
+                    "Short **test interval** set to "
+                    f"**{_format_interval(state.interval_seconds)}**. {timing} "
+                    "Restore `/interval` to the intended hours after testing.",
+                    ephemeral=True,
+                )
+
         @self.tree.command(name="pause", description="Pause future Socratic Partner activation.")
         async def pause(interaction: discord.Interaction) -> None:
             if not await self._require_authorized(interaction):
@@ -599,6 +629,9 @@ def _format_interval(interval_seconds: int) -> str:
     hours, remainder = divmod(interval_seconds, 60 * 60)
     if remainder == 0:
         return f"{hours} hour" if hours == 1 else f"{hours} hours"
+    minutes, remainder = divmod(interval_seconds, 60)
+    if remainder == 0:
+        return f"{minutes} minute" if minutes == 1 else f"{minutes} minutes"
     return f"{interval_seconds} seconds"
 
 
