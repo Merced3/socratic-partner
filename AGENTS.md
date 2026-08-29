@@ -1,7 +1,8 @@
 # Working on Socratic Partner
 
-Read `README.md`, `docs/architecture.md`, `docs/project-state.md`, `docs/roadmap.md`,
-`docs/development-workflow.md`, `tests/README.md`, and `tests/CONTRACTS.md` before planning changes.
+Read `README.md`, `docs/product-thesis.md`, `docs/architecture.md`,
+`docs/project-state.md`, `docs/roadmap.md`, `docs/development-workflow.md`,
+`tests/README.md`, and `tests/CONTRACTS.md` before planning changes.
 
 ## Approval boundary
 
@@ -36,6 +37,13 @@ Use this sequence for each milestone:
 8. Commit and push only after live acceptance succeeds.
 
 Do not commit merely because unit tests pass.
+
+## Product-direction boundary
+
+- Preserve the desired human outcome and the reason behind a direction, not only its technical trail.
+- Express future plans as outcome hypotheses, not prescribed implementations.
+- State what evidence would strengthen, weaken, or end a proposed direction before choosing technical machinery.
+- Read and maintain `docs/product-thesis.md`; do not let implementation plans silently redefine it.
 
 ## Architecture boundaries
 

@@ -4,7 +4,7 @@ A personal conversational AI designed to challenge assumptions, expose tradeoffs
 
 ## Current status
 
-The project is being built as a sequence of end-to-end increments. The current increment provides persistent Socratic conversations through Discord with optional automatic activation.
+The v0.09 automatic-scheduler milestone is complete and merged. The project provides persistent Socratic conversations through Discord with optional automatic activation and is currently in the one-week normal-use soak leading toward v0.1.0.
 
 Implemented:
 
@@ -116,11 +116,13 @@ Commands are rejected unless all three values match the configured development b
 Start with:
 
 - [`AGENTS.md`](AGENTS.md) — mandatory instructions for Pi development sessions
+- [`docs/product-thesis.md`](docs/product-thesis.md) — purpose, outcome hypotheses, and the practice for preserving why
 - [`docs/architecture.md`](docs/architecture.md) — ownership and loop boundaries
 - [`docs/project-state.md`](docs/project-state.md) — current known-good state and next milestone
 - [`docs/roadmap.md`](docs/roadmap.md) — release plan and longer-term direction
 - [`docs/development-workflow.md`](docs/development-workflow.md) — approval and acceptance process
-- [`docs/automatic-scheduler.md`](docs/automatic-scheduler.md) — bounded future scheduler design
+- [`docs/automatic-scheduler.md`](docs/automatic-scheduler.md) — implemented scheduler behavior and guarantees
+- [`docs/setup/windows.md`](docs/setup/windows.md) — validated Windows installation procedure
 - [`docs/session-handoff.md`](docs/session-handoff.md) — clean new-session prompt template
 - [`tests/README.md`](tests/README.md) — black-box testing and test-rationale policy
 
