@@ -495,7 +495,7 @@ class SocraticPartnerBot(commands.Bot):
                     (
                         f"Socratic Partner is now **{state.status}**.",
                         f"Planned activation: {_format_next_activation(state)}.",
-                        "The scheduler is not implemented yet.",
+                        _format_scheduler_configuration(self.settings),
                     )
                 ),
                 ephemeral=True,
@@ -573,6 +573,11 @@ async def _defer_then_acquire(
             _busy_message(operation_gate), ephemeral=True
         )
     return lease
+
+
+def _format_scheduler_configuration(settings: Settings) -> str:
+    state = "enabled" if settings.automatic_scheduler_enabled else "disabled"
+    return f"Automatic scheduler configuration is **{state}** until restart."
 
 
 def _format_scheduler_status(bot: SocraticPartnerBot) -> str:

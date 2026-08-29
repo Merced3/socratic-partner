@@ -15,6 +15,7 @@ from socratic_partner.discord_bot import (
     SocraticPartnerBot,
     _defer_then_acquire,
     _format_interval,
+    _format_scheduler_configuration,
     _format_scheduler_status,
     is_authorized,
 )
@@ -214,6 +215,22 @@ def test_interval_status_makes_short_test_timing_explicit(
 ) -> None:
     """Operators must be able to see whether a risky short test interval is active."""
     assert _format_interval(seconds) == expected
+
+
+@pytest.mark.parametrize(
+    ("enabled", "expected"),
+    [(False, "disabled"), (True, "enabled")],
+)
+def test_resume_reports_scheduler_configuration_without_stale_claims(
+    enabled: bool, expected: str
+) -> None:
+    """Resume feedback must reflect loaded configuration now that scheduling exists."""
+    settings = replace(SETTINGS, automatic_scheduler_enabled=enabled)
+
+    message = _format_scheduler_configuration(settings)
+
+    assert f"**{expected}**" in message
+    assert "until restart" in message
 
 
 def test_scheduler_status_formats_only_observed_runtime_state() -> None:

@@ -2,7 +2,7 @@
 
 ## Status
 
-Implemented on `feature/automatic-scheduler-v009` and accepted through controlled rollout. The scheduler remains disabled by default and uses SQLite schema version 4 without scheduler-specific persistent state.
+Implemented and merged into `main` at the v0.09 milestone. Controlled rollout passed, and the one-week normal-use soak leading toward v0.1.0 is in progress. The scheduler remains disabled by default and uses SQLite schema version 4 without scheduler-specific persistent state.
 
 ## Boundary
 

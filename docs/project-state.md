@@ -2,18 +2,26 @@
 
 ## Current revision
 
-- Active branch: `feature/automatic-scheduler-v009`
-- Main baseline: `e2c7c0a Update project state after boundary tests`
-- Latest accepted feature commit: `ea6d8eb Finalize scheduler rollout documentation and UX`
-- Merge candidate: feature branch is live-accepted and awaiting final review/merge
+- Active branch for accepted product code: `main`
+- Scheduler merge milestone: `91fa20d Merge automatic scheduler v0.09 milestone`
+- Current known-good revision: latest live-accepted commit on `main` (see `git log`)
+- Package version: `0.1.0.dev0`
 - SQLite schema: version 4
 - No `PENDING` state, durable outbox, or scheduler database migration
+
+A commit hash is recorded only when it names a meaningful historical milestone. This file does not try to duplicate the ever-changing `HEAD`; Git remains authoritative for the latest revision.
+
+## Current milestone
+
+The v0.09 automatic-scheduler milestone is complete, accepted, and merged. The one-week normal-use soak for v0.1.0 is currently in progress. No critical soak defect has been reported so far.
+
+The product purpose and evidence practice are recorded in [`product-thesis.md`](product-thesis.md). Future directions in [`roadmap.md`](roadmap.md) are outcome hypotheses rather than prescribed implementations.
 
 ## Implemented and live-tested
 
 - Guarded Discord guild/channel/user boundary
-- Ephemeral control commands and persistent conversation messages
-- `/status`, `/ask-test`, `/ask-now`, `/done`, `/interval`, `/pause`, `/resume`
+- Ephemeral controls and persistent conversation messages
+- `/status`, `/ask-test`, `/ask-now`, `/done`, `/interval`, `/pause`, and `/resume`
 - One restart-recoverable active conversation at a time
 - Pi RPC without tools or project resources
 - Fresh Pi session for each new conversation
@@ -27,7 +35,7 @@
 
 ## Controlled rollout result
 
-Slice D completed with the following evidence:
+Observed on the private deployment:
 
 - Disabled scheduling left manual behavior unchanged.
 - Enabled-but-paused scheduling produced no question.
@@ -41,39 +49,44 @@ Slice D completed with the following evidence:
 - `/test-interval` disappeared when disabled.
 - `/ask-test` and the manual conversation loop still worked after rollback.
 
-A forced clean missed-run restart was intentionally deferred. Deterministic tests cover overdue coalescing, and naturally occurring downtime may provide additional soak evidence.
+A forced clean missed-run restart was not required for controlled acceptance. Deterministic tests cover overdue coalescing, and naturally occurring downtime may provide additional evidence during normal use.
 
 ## Test status
 
-- Automated suite including the final typing regression: 92 passing tests
-- Public application workflow covers start, reply, reconstruction, continuation, completion,
-  session-card storage, and next-interval timing with real temporary SQLite
+- Automated suite: 92 passing tests
+- Ruff and `git diff --check`: passing at the start of the current documentation milestone
+- Public application workflows use real temporary SQLite and controlled ports
 - Historical schema fixtures cover versions 1–3 upgrading to version 4
-- Cross-platform fake Pi subprocess covers framing, oversized events, assistant errors,
-  malformed output, timeout/reset, and client reuse
-- Scheduler policy, lifecycle, gate, backoff, feature flags, and short intervals are automated
-- Real Discord/provider/process behavior remains bounded manual acceptance
+- Cross-platform fake Pi subprocess covers framing, large events, assistant errors, malformed output, timeout/reset, and client reuse
+- Scheduler policy, lifecycle, gate, backoff, feature flags, and short intervals have automated coverage
+- Real Discord, provider, and process behavior remains bounded manual evidence
 
-See `tests/CONTRACTS.md` for the detailed evidence matrix.
+See [`../tests/CONTRACTS.md`](../tests/CONTRACTS.md) for the detailed evidence matrix.
 
-## Preserved experiments and backup
+## Runtime and rollback
 
-The abandoned scheduler experiment remains on local branch:
+Runtime databases, backups, Pi sessions, logs, credentials, and Discord identifiers remain private and must never be committed.
 
-```text
-scheduler-experiment-2026-08-26
-```
+Automatic scheduling can be rolled back without a database downgrade:
 
-Do not merge or cherry-pick it wholesale. A pre-rollout database backup exists in ignored runtime storage. Runtime databases and backups must never be committed.
+1. Disable automatic scheduling in deployment configuration.
+2. Restart the process.
+3. Confirm `/status` reports the scheduler disabled.
+4. Confirm the manual conversation loop remains available.
 
 ## Immediate next steps
 
-1. Review `main...feature/automatic-scheduler-v009` as a whole.
-2. Merge the accepted feature branch into `main` and push.
-3. Configure 24 hours, scheduler enabled, and test controls disabled.
-4. Begin the one-week normal-use soak described in `docs/roadmap.md`.
+1. Continue the one-week normal-use soak at the intended 24-hour interval.
+2. Keep short test controls disabled during normal use.
+3. Record whether the recurring interaction remains useful and unobtrusive—not only whether it remains technically healthy.
+4. Adopt and track the validated Windows installation guide.
+5. Choose, document, and test a Windows startup/restart procedure before v0.1.0.
+6. Correct any stale user-facing or project-state wording discovered during the soak.
+7. When release criteria pass, prepare and separately approve the `v0.1.0` release.
 
 ## Version milestones
 
-- Development soak: package remains `0.1.0.dev0`; “v0.09” is a project milestone, not a tag.
-- v0.1.0: tag only after the one-week soak, a tested Windows startup/restart procedure, current documentation, and no unresolved critical reliability defect.
+- `v0.09`: historical project milestone name for the automatic scheduler; not a release tag
+- `0.1.0.dev0`: current development package version during soak
+- `v0.1.0`: next planned release and Git tag after all release criteria pass
+- Later releases follow `vMAJOR.MINOR.PATCH`
