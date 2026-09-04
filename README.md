@@ -4,7 +4,7 @@ A personal conversational AI designed to challenge assumptions, expose tradeoffs
 
 ## Current status
 
-The v0.09 automatic-scheduler milestone is complete and merged. The project provides persistent Socratic conversations through Discord with optional automatic activation and is currently in the one-week normal-use soak leading toward v0.1.0.
+The v0.09 automatic-scheduler milestone is complete, merged, and passed a one-week normal-use soak. The project is released as v0.1.0.
 
 Implemented:
 
@@ -123,6 +123,7 @@ Start with:
 - [`docs/development-workflow.md`](docs/development-workflow.md) — approval and acceptance process
 - [`docs/automatic-scheduler.md`](docs/automatic-scheduler.md) — implemented scheduler behavior and guarantees
 - [`docs/setup/windows.md`](docs/setup/windows.md) — validated Windows installation procedure
+- [`docs/setup/windows-autostart.md`](docs/setup/windows-autostart.md) — validated Windows Task Scheduler autostart
 - [`docs/session-handoff.md`](docs/session-handoff.md) — clean new-session prompt template
 - [`tests/README.md`](tests/README.md) — black-box testing and test-rationale policy
 

@@ -10,7 +10,7 @@ Read [`product-thesis.md`](product-thesis.md) first for the longer-lived purpose
 
 ## Current position
 
-The v0.09 automatic-scheduler milestone is complete and merged into `main`. Controlled rollout passed. The project is now in the one-week normal-use soak leading toward v0.1.0.
+The v0.09 automatic-scheduler milestone is complete and merged into `main`. Controlled rollout passed, and the one-week normal-use soak passed with no critical defects. The project is released as v0.1.0.
 
 Evidence established before the soak:
 
@@ -65,12 +65,12 @@ If a critical problem occurs, disable automatic scheduling, restart, preserve no
 
 **Outcome:** A small, dependable personal tool that can run through ordinary weeks without demanding developer supervision.
 
-Release when:
+The release criteria were met:
 
-- the controlled rollout has passed;
-- the one-week normal-use soak passes to the user’s standards;
+- the controlled rollout passed;
+- the one-week normal-use soak passed to the user’s standards;
 - no unresolved critical reliability defect remains;
-- Windows startup and restart behavior is documented and tested;
+- Windows startup and restart behavior is documented and tested in [`setup/windows-autostart.md`](setup/windows-autostart.md);
 - current documentation matches reality;
 - automatic behavior can be disabled immediately without data migration;
 - short test controls are disabled during normal use.
@@ -78,8 +78,8 @@ Release when:
 Version policy:
 
 - `v0.09` remains the historical name of the scheduler milestone; it is not a release tag.
-- `0.1.0.dev0` identifies development leading toward the first release.
-- The next release and Git tag will be `v0.1.0`.
+- `0.1.0.dev0` identified development leading toward the first release.
+- The current release and Git tag is `v0.1.0`.
 - Future release tags use `vMAJOR.MINOR.PATCH` syntax.
 
 ## Future outcome hypotheses

@@ -8,6 +8,7 @@
 - [`automatic-scheduler.md`](automatic-scheduler.md) — bounded scheduler requirements and rollout
 - [`session-handoff.md`](session-handoff.md) — prompt template for a clean Pi session transition
 - [`setup/windows.md`](setup/windows.md) — validated Windows installation procedure
-  - Future setup guides may be added alongside it as `setup/linux.md` and `setup/macos.md` after those procedures are actually validated.
+- [`setup/windows-autostart.md`](setup/windows-autostart.md) — validated Windows Task Scheduler autostart
+  - Future setup guides may be added alongside them as `setup/linux.md` and `setup/macos.md` after those procedures are actually validated.
 - [`../tests/README.md`](../tests/README.md) — black-box evidence and test-rationale policy
 - [`../tests/CONTRACTS.md`](../tests/CONTRACTS.md) — current behavior-to-evidence matrix

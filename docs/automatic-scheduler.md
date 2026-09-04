@@ -2,7 +2,7 @@
 
 ## Status
 
-Implemented and merged into `main` at the v0.09 milestone. Controlled rollout passed, and the one-week normal-use soak leading toward v0.1.0 is in progress. The scheduler remains disabled by default and uses SQLite schema version 4 without scheduler-specific persistent state.
+Implemented, merged into `main`, and released as v0.1.0. The one-week normal-use soak passed with no critical defects. The scheduler remains disabled by default and uses SQLite schema version 4 without scheduler-specific persistent state.
 
 ## Boundary
 
@@ -74,7 +74,7 @@ For a supervised rollout only, enable test controls and use:
 
 After testing, restore `/interval hours:24`, disable test controls, and restart. Disabling the scheduler is the immediate rollback and requires no database migration.
 
-## Controlled rollout evidence
+## Controlled rollout and soak evidence
 
 Observed manually on the private deployment:
 
@@ -88,7 +88,9 @@ Observed manually on the private deployment:
 - Scheduler and test controls disabled cleanly; `/test-interval` disappeared.
 - Manual `/ask-test` and `/ask-now` continued to work after rollback.
 
-A forced clean missed-run restart was deferred. Deterministic policy tests cover overdue coalescing; naturally occurring downtime may add live evidence during the soak.
+The one-week normal-use soak ran for over seven days with multiple long-running conversations. The only incident was a transient Discord gateway 503 on 2026-09-03 that discord.py auto-reconnected within ~5 seconds with no user-visible impact. No duplicate activations, no missed questions, and no manual-intervention failures occurred.
+
+A forced clean missed-run restart was not required. Deterministic policy tests cover overdue coalescing; naturally occurring downtime during the soak supplied additional evidence.
 
 ## Process supervision
 

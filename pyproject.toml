@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "socratic-partner"
-version = "0.1.0.dev0"
+version = "0.1.0"
 description = "A conversational AI that challenges assumptions and clarifies decisions."
 readme = "README.md"
 requires-python = ">=3.11"
