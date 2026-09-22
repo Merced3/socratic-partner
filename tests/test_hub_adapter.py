@@ -167,6 +167,23 @@ def test_resume_reports_scheduler_configuration_without_stale_claims() -> None:
     )
 
 
+async def test_scheduler_loop_stops_promptly_on_close(tmp_path) -> None:
+    """Regression: Ctrl+C must not stall 30s on the scheduler's 60s sleep.
+
+    Observed live: the harness hit its shutdown timeout and force-cancelled
+    because the loop slept through the stop signal.
+    """
+    import asyncio
+
+    enabled = replace(SETTINGS, automatic_scheduler_enabled=True)
+    adapter = _adapter(tmp_path, enabled)
+    task = asyncio.create_task(adapter.run_scheduler())
+    await asyncio.sleep(0)  # let the first tick happen
+    await adapter.close()
+    await asyncio.wait_for(task, timeout=5)
+    assert task.done()
+
+
 def test_scheduler_status_formats_only_observed_runtime_state(tmp_path) -> None:
     """Status must not invent a scheduler that configuration did not enable."""
     adapter = _adapter(tmp_path, SETTINGS)

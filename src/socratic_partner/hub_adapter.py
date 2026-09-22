@@ -158,8 +158,8 @@ class SocraticHubAdapter:
             else None
         )
         self._stopping = False
+        self._stop_event = asyncio.Event()
         self._scheduler_clock = lambda: datetime.now(UTC)
-        self._scheduler_sleep = asyncio.sleep
 
     # -- lifecycle ---------------------------------------------------------
 
@@ -186,6 +186,7 @@ class SocraticHubAdapter:
 
     async def close(self) -> None:
         self._stopping = True
+        self._stop_event.set()
         await self.pi_client.close()
         await self.hub.close()
 
@@ -200,7 +201,9 @@ class SocraticHubAdapter:
                 raise
             except Exception:
                 logger.exception("Automatic scheduler tick failed.")
-            await self._scheduler_sleep(60)
+            # Wake immediately on shutdown instead of sleeping through it.
+            with suppress(TimeoutError):
+                await asyncio.wait_for(self._stop_event.wait(), timeout=60)
 
     # -- hub callback dispatch ----------------------------------------------
 
