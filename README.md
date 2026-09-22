@@ -47,8 +47,13 @@ Not implemented yet:
 ```powershell
 py -3.13 -m venv .venv
 .venv\Scripts\Activate.ps1
+python -m pip install -e ../automation-harness  # not on PyPI; install from sibling
 python -m pip install -e ".[dev]"
 ```
+
+The automation-harness owns the process lifecycle: single-instance lock,
+graceful shutdown, supervised restart with backoff, structured logs, and
+`data/status.json`. Socratic Partner runs as a supervised service inside it.
 
 ## Configure Automation Lab
 
