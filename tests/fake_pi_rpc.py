@@ -23,20 +23,54 @@ def _respond(request: dict[str, Any], data: dict[str, Any] | None = None) -> Non
     )
 
 
-def _state() -> dict[str, Any]:
+_MODELS = [
+    {"provider": "fake-provider", "id": "fake-model", "name": "Fake Model"},
+    {"provider": "fake-provider", "id": "fake-model-2", "name": "Fake Model 2"},
+]
+
+
+def _state(current_model: dict[str, Any]) -> dict[str, Any]:
     return {
         "sessionId": "fake-session",
         "sessionFile": "fake-session.jsonl",
-        "model": {"provider": "fake-provider", "id": "fake-model"},
+        "model": current_model,
     }
 
 
 def main() -> None:
+    current_model = _MODELS[0]
     for line in sys.stdin:
         request = json.loads(line)
         command = request.get("type")
         if command == "get_state":
-            _respond(request, _state())
+            _respond(request, _state(current_model))
+        elif command == "get_available_models":
+            _respond(request, {"models": _MODELS})
+        elif command == "set_model":
+            match = next(
+                (
+                    model
+                    for model in _MODELS
+                    if model["provider"] == request.get("provider")
+                    and model["id"] == request.get("modelId")
+                ),
+                None,
+            )
+            if match is None:
+                _write(
+                    {
+                        "type": "response",
+                        "id": request.get("id"),
+                        "success": False,
+                        "error": (
+                            f"Model not found: {request.get('provider')}/"
+                            f"{request.get('modelId')}"
+                        ),
+                    }
+                )
+            else:
+                current_model = match
+                _respond(request, match)
         elif command == "get_session_stats":
             _respond(request, {"tokens": {"input": 12, "output": 3}, "cost": 0.002})
         elif command == "new_session":

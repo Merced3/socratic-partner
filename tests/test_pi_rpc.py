@@ -189,6 +189,30 @@ async def test_fake_subprocess_rejects_assistant_errors(tmp_path) -> None:
         await client.close()
 
 
+async def test_fake_subprocess_switches_model_across_real_pipes(tmp_path) -> None:
+    """The /model command depends on set_model persisting for later runs in the session.
+
+    Asserts observable state (get_state's model) rather than request plumbing,
+    and that an unknown model is rejected without corrupting the connection.
+    """
+    client = _subprocess_client(tmp_path)
+    try:
+        models = await client.get_available_models()
+        assert {model["id"] for model in models} == {"fake-model", "fake-model-2"}
+
+        switched = await client.set_model("fake-provider", "fake-model-2")
+        assert switched["id"] == "fake-model-2"
+        state = await client.get_state()
+        assert state["model"]["id"] == "fake-model-2"
+
+        with pytest.raises(PiRpcError, match="Model not found"):
+            await client.set_model("fake-provider", "does-not-exist")
+        state = await client.get_state()
+        assert state["model"]["id"] == "fake-model-2"
+    finally:
+        await client.close()
+
+
 async def test_fake_subprocess_recovers_after_malformed_output(tmp_path) -> None:
     """One malformed stdout line must not discard the next complete valid protocol exchange."""
     client = _subprocess_client(tmp_path)

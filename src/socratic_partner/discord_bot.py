@@ -320,6 +320,80 @@ class SocraticPartnerBot(commands.Bot):
                 ephemeral=True,
             )
 
+        @self.tree.command(name="model", description="Switch the model Socrates reasons with.")
+        @app_commands.describe(model="Model as provider/model-id (pick from the list).")
+        async def model(interaction: discord.Interaction, model: str) -> None:
+            if not await self._require_authorized(interaction):
+                return
+            provider, separator, model_id = model.partition("/")
+            if not separator or not provider.strip() or not model_id.strip():
+                await interaction.response.send_message(
+                    "Model must be `provider/model-id`. Pick one from the list.",
+                    ephemeral=True,
+                )
+                return
+
+            lease = await _defer_then_acquire(
+                interaction,
+                self.operation_gate,
+                operation="switching the model",
+            )
+            if lease is None:
+                return
+
+            try:
+                async with lease:
+                    new_model = await self.pi_client.set_model(
+                        provider.strip(), model_id.strip()
+                    )
+            except PiRpcError as exc:
+                logger.exception("Model switch failed.")
+                await interaction.followup.send(
+                    f"The model was not switched: {exc}", ephemeral=True
+                )
+                return
+
+            name = new_model.get("name") or new_model.get("id") or model_id
+            await interaction.followup.send(
+                f"Model switched to **{name}** (`{provider.strip()}/{model_id.strip()}`). "
+                "It applies to the next model call, including any active conversation.",
+                ephemeral=True,
+            )
+
+        @model.autocomplete("model")
+        async def model_autocomplete(
+            interaction: discord.Interaction, current: str
+        ) -> list[app_commands.Choice[str]]:
+            if not is_authorized(
+                self.settings,
+                guild_id=interaction.guild_id,
+                channel_id=interaction.channel_id,
+                user_id=interaction.user.id,
+            ):
+                return []
+            try:
+                # Discord allows roughly 3 seconds; never block completion on Pi.
+                models = await asyncio.wait_for(
+                    self.pi_client.get_available_models(), timeout=2.5
+                )
+            except (PiRpcError, TimeoutError):
+                return []
+            choices: list[app_commands.Choice[str]] = []
+            for available in models:
+                provider = available.get("provider")
+                model_id = available.get("id")
+                if not isinstance(provider, str) or not isinstance(model_id, str):
+                    continue
+                if not provider or not model_id:
+                    continue
+                value = f"{provider}/{model_id}"
+                label = f"{available.get('name') or model_id} ({value})"
+                if current.lower() in label.lower():
+                    choices.append(
+                        app_commands.Choice(name=label[:100], value=value[:100])
+                    )
+            return choices[:25]
+
         @self.tree.command(name="ask-now", description="Start a Socratic conversation now.")
         async def ask_now(interaction: discord.Interaction) -> None:
             if not await self._require_authorized(interaction):

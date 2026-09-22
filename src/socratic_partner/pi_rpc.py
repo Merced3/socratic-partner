@@ -166,6 +166,26 @@ class PiRpcClient:
         response = await self._request({"type": "get_state"})
         return _response_data(response)
 
+    async def get_available_models(self) -> list[dict[str, Any]]:
+        """List the models Pi can switch to, as raw Model objects."""
+        async with self._run_lock:
+            await self.start()
+            response = await self._request({"type": "get_available_models"})
+        data = _response_data(response)
+        models = data.get("models")
+        if not isinstance(models, list):
+            return []
+        return [model for model in models if isinstance(model, dict)]
+
+    async def set_model(self, provider: str, model_id: str) -> dict[str, Any]:
+        """Switch the model used by subsequent runs; returns the new Model object."""
+        async with self._run_lock:
+            await self.start()
+            response = await self._request(
+                {"type": "set_model", "provider": provider, "modelId": model_id}
+            )
+        return _response_data(response)
+
     async def new_session(self) -> dict[str, Any]:
         async with self._run_lock:
             await self.start()
