@@ -40,7 +40,7 @@ Not implemented yet:
 
 - Python 3.11 or newer
 - A private Discord server
-- A dedicated Discord application and bot for development
+- discord-hub running locally (it owns the Discord connection)
 
 ## Install for development
 
@@ -55,27 +55,17 @@ The automation-harness owns the process lifecycle: single-instance lock,
 graceful shutdown, supervised restart with backoff, structured logs, and
 `data/status.json`. Socratic Partner runs as a supervised service inside it.
 
-## Configure Automation Lab
+## Configure
 
-In the Discord Developer Portal:
+Discord credentials, reconnect logic, and the bot itself belong to
+[discord-hub](../discord-hub) — Socratic Partner holds no token and imports
+no Discord library. Set up and run the hub first, then create a private
+home channel (for example `#reflection`) that will host one thread per
+session. The hub's bot needs these permissions in that channel: View
+Channel, Send Messages, Read Message History, Create Public Threads, and
+Send Messages in Threads.
 
-1. Open the **Automation Lab** application.
-2. Open **Bot** and create its bot user if it does not already exist.
-3. Generate or reset the bot token and keep it secret.
-4. Under the installation/OAuth configuration, authorize the `bot` and `applications.commands` scopes for your private server.
-5. Grant only the permissions currently needed:
-   - View Channels
-   - Send Messages
-   - Read Message History
-   - Use Application Commands
-   - Create Public Threads
-   - Send Messages in Threads
-6. Under **Bot → Privileged Gateway Intents**, enable **Message Content Intent**.
-7. Do not grant Administrator.
-
-Message Content Intent is required because normal replies in the allowlisted test channel are forwarded into the active Socratic conversation. Messages outside the configured guild, channel, and user boundary are ignored.
-
-Enable Discord Developer Mode to copy your guild (server), test channel, and user IDs.
+Enable Discord Developer Mode to copy the home channel and your user IDs.
 
 Copy the configuration template:
 
@@ -86,10 +76,11 @@ Copy-Item .env.example .env
 Fill in `.env` locally:
 
 ```dotenv
-DISCORD_BOT_TOKEN=your-secret-bot-token
-DISCORD_GUILD_ID=your-private-server-id
-DISCORD_TEST_CHANNEL_ID=your-private-test-channel-id
+DISCORD_TEST_CHANNEL_ID=your-home-channel-id
 DISCORD_ALLOWED_USER_ID=your-user-id
+SOCRATIC_PARTNER_HUB_URL=http://localhost:8100
+SOCRATIC_PARTNER_CALLBACK_HOST=127.0.0.1
+SOCRATIC_PARTNER_CALLBACK_PORT=9100
 SOCRATIC_PARTNER_TEST_MODE=true
 SOCRATIC_PARTNER_TEST_CONTROLS_ENABLED=false
 SOCRATIC_PARTNER_AUTOMATIC_SCHEDULER_ENABLED=false
@@ -102,7 +93,9 @@ SOCRATIC_PARTNER_PI_TIMEOUT_SECONDS=120
 SOCRATIC_PARTNER_LOG_LEVEL=INFO
 ```
 
-`.env` and runtime data are ignored by Git. Never commit or paste the bot token, client secret, or other credentials.
+`.env` and runtime data are ignored by Git. On startup, Socratic Partner
+registers the home channel with the hub (its messages arrive as `Socrates`
+via the channel webhook) and publishes its slash commands through the hub.
 
 ## Run
 
@@ -110,13 +103,15 @@ SOCRATIC_PARTNER_LOG_LEVEL=INFO
 socratic-partner
 ```
 
-When connected, use `/ask-now` to post the first persistent Socratic question. Reply normally in the configured channel, then use `/done` to generate a provisional session card and close the conversation. Use `/interval` to set 1–720 hours between completed conversations. Control-command responses remain ephemeral; conversation messages and session cards remain visible in the channel. Automatic scheduling is opt-in. `/test-interval` is registered only when test controls are explicitly enabled and should be disabled during normal use.
+When connected, use `/ask-now` to open a session thread with the first Socratic question. Reply normally inside that thread, then use `/done` to generate a provisional session card and close the conversation. Use `/interval` to set 1–720 hours between completed conversations, and `/model` to switch the reasoning model at any time. Control-command responses remain ephemeral; conversation messages and session cards remain visible in the thread. Automatic scheduling is opt-in. `/test-interval` is published only when test controls are explicitly enabled and should be disabled during normal use.
 
-Commands are rejected unless all three values match the configured development boundary:
+Commands and messages are rejected unless they match the configured development boundary:
 
-- Guild ID
-- Channel ID
+- Channel ID (the home channel, or a session thread belonging to it)
 - User ID
+
+The hub serves only the one configured server, so guild gating is a
+deployment property of the hub rather than a per-command check.
 
 ## Documentation
 

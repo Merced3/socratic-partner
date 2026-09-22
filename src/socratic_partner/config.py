@@ -19,10 +19,12 @@ class ConfigurationError(ValueError):
 
 @dataclass(frozen=True, slots=True)
 class Settings:
-    discord_bot_token: str
-    discord_guild_id: int
     discord_test_channel_id: int
     discord_allowed_user_id: int
+    hub_url: str
+    callback_host: str
+    callback_port: int
+    callback_url: str
     test_mode: bool
     test_controls_enabled: bool
     log_level: str
@@ -46,10 +48,18 @@ class Settings:
                 load_dotenv(dotenv_path=env_file, override=False)
             environment = os.environ
 
-        token = _required_text(environment, "DISCORD_BOT_TOKEN")
-        guild_id = _required_positive_int(environment, "DISCORD_GUILD_ID")
         channel_id = _required_positive_int(environment, "DISCORD_TEST_CHANNEL_ID")
         user_id = _required_positive_int(environment, "DISCORD_ALLOWED_USER_ID")
+        hub_url = environment.get("SOCRATIC_PARTNER_HUB_URL", "http://localhost:8100").strip()
+        callback_host = environment.get(
+            "SOCRATIC_PARTNER_CALLBACK_HOST", "127.0.0.1"
+        ).strip()
+        callback_port = _positive_int_with_default(
+            environment, "SOCRATIC_PARTNER_CALLBACK_PORT", default=9100
+        )
+        callback_url = environment.get("SOCRATIC_PARTNER_CALLBACK_URL", "").strip()
+        if not callback_url:
+            callback_url = f"http://localhost:{callback_port}/discord"
         test_mode = _parse_bool(environment.get("SOCRATIC_PARTNER_TEST_MODE", "true"))
         test_controls_enabled = _parse_bool(
             environment.get("SOCRATIC_PARTNER_TEST_CONTROLS_ENABLED", "false")
@@ -90,10 +100,12 @@ class Settings:
             raise ConfigurationError("SOCRATIC_PARTNER_PI_SESSION_DIRECTORY cannot be empty.")
 
         return cls(
-            discord_bot_token=token,
-            discord_guild_id=guild_id,
             discord_test_channel_id=channel_id,
             discord_allowed_user_id=user_id,
+            hub_url=hub_url,
+            callback_host=callback_host,
+            callback_port=callback_port,
+            callback_url=callback_url,
             test_mode=test_mode,
             test_controls_enabled=test_controls_enabled,
             log_level=log_level,

@@ -5,8 +5,6 @@ import pytest
 from socratic_partner.config import ConfigurationError, Settings
 
 VALID_ENVIRONMENT = {
-    "DISCORD_BOT_TOKEN": "test-token",
-    "DISCORD_GUILD_ID": "100",
     "DISCORD_TEST_CHANNEL_ID": "200",
     "DISCORD_ALLOWED_USER_ID": "300",
     "SOCRATIC_PARTNER_TEST_MODE": "true",
@@ -18,10 +16,12 @@ def test_loads_valid_environment() -> None:
     """Document stable defaults through the public loader, without reading a real `.env`."""
     settings = Settings.from_environment(VALID_ENVIRONMENT, env_file=None)
 
-    assert settings.discord_bot_token == "test-token"
-    assert settings.discord_guild_id == 100
     assert settings.discord_test_channel_id == 200
     assert settings.discord_allowed_user_id == 300
+    assert settings.hub_url == "http://localhost:8100"
+    assert settings.callback_host == "127.0.0.1"
+    assert settings.callback_port == 9100
+    assert settings.callback_url == "http://localhost:9100/discord"
     assert settings.test_mode is True
     assert settings.test_controls_enabled is False
     assert settings.database_path.as_posix() == "data/socratic_partner.sqlite3"
@@ -57,18 +57,34 @@ def test_explicitly_enables_automatic_scheduler() -> None:
     assert settings.automatic_scheduler_enabled is True
 
 
-def test_rejects_missing_secret() -> None:
-    environment = {**VALID_ENVIRONMENT, "DISCORD_BOT_TOKEN": ""}
+def test_rejects_missing_home_channel() -> None:
+    environment = {**VALID_ENVIRONMENT, "DISCORD_TEST_CHANNEL_ID": ""}
 
-    with pytest.raises(ConfigurationError, match="DISCORD_BOT_TOKEN is required"):
+    with pytest.raises(ConfigurationError, match="DISCORD_TEST_CHANNEL_ID is required"):
         Settings.from_environment(environment, env_file=None)
 
 
 def test_rejects_non_numeric_identifier() -> None:
-    environment = {**VALID_ENVIRONMENT, "DISCORD_GUILD_ID": "not-an-id"}
+    environment = {**VALID_ENVIRONMENT, "DISCORD_ALLOWED_USER_ID": "not-an-id"}
 
-    with pytest.raises(ConfigurationError, match="DISCORD_GUILD_ID must be an integer"):
+    with pytest.raises(ConfigurationError, match="DISCORD_ALLOWED_USER_ID must be an integer"):
         Settings.from_environment(environment, env_file=None)
+
+
+def test_honors_explicit_hub_and_callback_configuration() -> None:
+    """The hub URL and callback identity are deployment settings, not constants."""
+    environment = {
+        **VALID_ENVIRONMENT,
+        "SOCRATIC_PARTNER_HUB_URL": "http://localhost:8200",
+        "SOCRATIC_PARTNER_CALLBACK_PORT": "9200",
+        "SOCRATIC_PARTNER_CALLBACK_URL": "http://localhost:9200/discord",
+    }
+
+    settings = Settings.from_environment(environment, env_file=None)
+
+    assert settings.hub_url == "http://localhost:8200"
+    assert settings.callback_port == 9200
+    assert settings.callback_url == "http://localhost:9200/discord"
 
 
 def test_rejects_invalid_default_interval() -> None:
