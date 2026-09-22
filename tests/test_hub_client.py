@@ -71,6 +71,20 @@ async def test_unreachable_hub_is_a_distinct_failure() -> None:
     await client.close()
 
 
+async def test_slow_hub_reports_timeout_not_unreachable() -> None:
+    """A reachable-but-slow hub must not be misreported as down; the first live
+    startup produced exactly this misleading message."""
+
+    def hang(request: httpx.Request) -> httpx.Response:
+        raise httpx.ReadTimeout("read timed out", request=request)
+
+    client = HubClient("http://hub.test", transport=httpx.MockTransport(hang))
+
+    with pytest.raises(HubError, match="timed out"):
+        await client.health()
+    await client.close()
+
+
 async def test_put_commands_replaces_the_whole_set() -> None:
     """Command sync is declarative: the hub replaces, so we always send the full set."""
     client, requests = _recording_client(

@@ -29,6 +29,7 @@ class HubClient:
         timeout_seconds: float = 30,
         transport: httpx.AsyncBaseTransport | None = None,
     ) -> None:
+        self._default_timeout = timeout_seconds
         self._client = httpx.AsyncClient(
             base_url=base_url.rstrip("/"), timeout=timeout_seconds, transport=transport
         )
@@ -78,10 +79,13 @@ class HubClient:
     async def put_commands(
         self, callback_url: str, commands: list[dict[str, Any]]
     ) -> dict[str, Any]:
+        # The hub re-syncs the full command set with Discord on this call,
+        # which can take well over the default timeout on a cold start.
         return await self._request(
             "PUT",
             "/commands",
             json={"callback_url": callback_url, "commands": commands},
+            timeout_seconds=120,
         )
 
     async def post_followup(
@@ -102,10 +106,19 @@ class HubClient:
         return [str(name) for name in permissions] if isinstance(permissions, list) else []
 
     async def _request(
-        self, method: str, path: str, *, json: dict[str, Any] | None = None
+        self,
+        method: str,
+        path: str,
+        *,
+        json: dict[str, Any] | None = None,
+        timeout_seconds: float | None = None,
     ) -> Any:
         try:
-            response = await self._client.request(method, path, json=json)
+            response = await self._client.request(
+                method, path, json=json, timeout=timeout_seconds or self._default_timeout
+            )
+        except httpx.TimeoutException as exc:
+            raise HubError(f"discord-hub timed out during {method} {path}") from exc
         except httpx.HTTPError as exc:
             raise HubError(f"discord-hub is unreachable: {exc}") from exc
         if response.status_code == 204:
