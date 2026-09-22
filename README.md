@@ -63,6 +63,8 @@ In the Discord Developer Portal:
    - Send Messages
    - Read Message History
    - Use Application Commands
+   - Create Public Threads
+   - Send Messages in Threads
 6. Under **Bot → Privileged Gateway Intents**, enable **Message Content Intent**.
 7. Do not grant Administrator.
 

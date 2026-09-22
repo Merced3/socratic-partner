@@ -53,6 +53,24 @@ def test_rejects_wrong_channel() -> None:
     assert not is_authorized(SETTINGS, guild_id=100, channel_id=201, user_id=300)
 
 
+def test_authorizes_session_thread_through_its_parent() -> None:
+    """Sessions live in threads; a thread's own ID is never the configured channel.
+
+    Without parent-based authorization every reply inside a session thread would
+    be silently ignored, making conversations impossible.
+    """
+    assert is_authorized(
+        SETTINGS, guild_id=100, channel_id=999, user_id=300, parent_channel_id=200
+    )
+
+
+def test_rejects_thread_of_an_unrelated_channel() -> None:
+    """Only threads of the configured channel inherit the boundary."""
+    assert not is_authorized(
+        SETTINGS, guild_id=100, channel_id=999, user_id=300, parent_channel_id=201
+    )
+
+
 def test_rejects_wrong_user() -> None:
     assert not is_authorized(SETTINGS, guild_id=100, channel_id=200, user_id=301)
 

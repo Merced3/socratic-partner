@@ -39,12 +39,20 @@ def is_authorized(
     guild_id: int | None,
     channel_id: int | None,
     user_id: int,
+    parent_channel_id: int | None = None,
 ) -> bool:
-    """Return whether an interaction is inside the explicit development boundary."""
+    """Return whether an interaction is inside the explicit development boundary.
+
+    Session threads are authorized through their parent: a thread's own ID is
+    not the configured channel, but the conversation lives there by design.
+    """
     return (
         settings.test_mode
         and guild_id == settings.discord_guild_id
-        and channel_id == settings.discord_test_channel_id
+        and (
+            channel_id == settings.discord_test_channel_id
+            or parent_channel_id == settings.discord_test_channel_id
+        )
         and user_id == settings.discord_allowed_user_id
     )
 
@@ -115,6 +123,7 @@ class SocraticPartnerBot(commands.Bot):
             guild_id=message.guild.id if message.guild else None,
             channel_id=message.channel.id,
             user_id=message.author.id,
+            parent_channel_id=getattr(message.channel, "parent_id", None),
         ):
             return
 
@@ -190,10 +199,33 @@ class SocraticPartnerBot(commands.Bot):
     async def _automatic_kickoff(self, lease: OperationLease) -> None:
         if self._scheduler_stopping:
             return
-        await self.conversation_service.start_claimed_conversation(
-            channel_id=self.settings.discord_test_channel_id,
-            lease=lease,
-        )
+        thread = await self._create_session_thread()
+        try:
+            await self.conversation_service.start_claimed_conversation(
+                channel_id=thread.id,
+                lease=lease,
+            )
+        except Exception:
+            with suppress(discord.HTTPException):
+                await thread.delete()
+            raise
+
+    async def _create_session_thread(self) -> discord.Thread:
+        """Create the thread that will host one full Socratic session."""
+        channel = self.get_channel(self.settings.discord_test_channel_id)
+        if channel is None:
+            channel = await self.fetch_channel(self.settings.discord_test_channel_id)
+        create_thread = getattr(channel, "create_thread", None)
+        if create_thread is None:
+            raise MessageDeliveryFailed(
+                "The configured channel cannot host session threads."
+            )
+        try:
+            return await create_thread(
+                name=_session_thread_name(datetime.now(UTC))
+            )
+        except discord.HTTPException as exc:
+            raise MessageDeliveryFailed(str(exc)) from exc
 
     async def _notify_automatic_failure(self, failure: ClassifiedError) -> None:
         await self._messenger.send(
@@ -207,6 +239,7 @@ class SocraticPartnerBot(commands.Bot):
             guild_id=interaction.guild_id,
             channel_id=interaction.channel_id,
             user_id=interaction.user.id,
+            parent_channel_id=getattr(interaction.channel, "parent_id", None),
         ):
             return True
 
@@ -412,38 +445,65 @@ class SocraticPartnerBot(commands.Bot):
                 )
                 return
 
-            await interaction.response.defer(ephemeral=True, thinking=True)
-            try:
-                await self.conversation_service.start_conversation(
-                    channel_id=interaction.channel.id
-                )
-            except OperationBusy as exc:
-                await interaction.followup.send(f"{exc} Retry shortly.", ephemeral=True)
-                return
-            except ConversationAlreadyOpen:
-                await interaction.followup.send(
+            if self.store.get_active_conversation() is not None:
+                await interaction.response.send_message(
                     "A Socratic conversation is already open. Use `/done` before starting another.",
                     ephemeral=True,
                 )
                 return
-            except AgentRequestFailed as exc:
-                logger.exception("Could not start Socratic conversation.")
+
+            await interaction.response.defer(ephemeral=True, thinking=True)
+            try:
+                thread = await self._create_session_thread()
+            except MessageDeliveryFailed:
+                logger.exception("Could not create the session thread.")
                 await interaction.followup.send(
-                    exc.failure.discord_message(), ephemeral=True
-                )
-                return
-            except (MessageDeliveryFailed, StatePersistenceFailed):
-                logger.exception("Could not persist or deliver Socratic conversation.")
-                await interaction.followup.send(
-                    "The conversation could not be delivered or saved. Check `/status` and the "
+                    "The session thread could not be created. Check `/status` and the "
                     "local logs.",
                     ephemeral=True,
                 )
                 return
+            try:
+                await self.conversation_service.start_conversation(
+                    channel_id=thread.id
+                )
+            except (
+                OperationBusy,
+                ConversationAlreadyOpen,
+                AgentRequestFailed,
+                MessageDeliveryFailed,
+                StatePersistenceFailed,
+            ) as exc:
+                # The session never opened; remove the empty thread it would have used.
+                with suppress(discord.HTTPException):
+                    await thread.delete()
+                if isinstance(exc, OperationBusy):
+                    await interaction.followup.send(
+                        f"{exc} Retry shortly.", ephemeral=True
+                    )
+                elif isinstance(exc, ConversationAlreadyOpen):
+                    await interaction.followup.send(
+                        "A Socratic conversation is already open. Use `/done` before "
+                        "starting another.",
+                        ephemeral=True,
+                    )
+                elif isinstance(exc, AgentRequestFailed):
+                    logger.exception("Could not start Socratic conversation.")
+                    await interaction.followup.send(
+                        exc.failure.discord_message(), ephemeral=True
+                    )
+                else:
+                    logger.exception("Could not persist or deliver Socratic conversation.")
+                    await interaction.followup.send(
+                        "The conversation could not be delivered or saved. Check `/status` "
+                        "and the local logs.",
+                        ephemeral=True,
+                    )
+                return
 
             await interaction.followup.send(
-                "A new Socratic conversation is open. Reply normally in this channel and use "
-                "`/done` when you want to close it.",
+                f"A new Socratic conversation is open in {thread.mention}. Reply normally "
+                "in that thread and use `/done` when you want to close it.",
                 ephemeral=True,
             )
 
@@ -491,6 +551,10 @@ class SocraticPartnerBot(commands.Bot):
                 return
 
             state = completed.state
+
+            if isinstance(interaction.channel, discord.Thread):
+                with suppress(discord.HTTPException):
+                    await interaction.channel.edit(archived=True)
 
             await interaction.followup.send(
                 "Conversation closed. The next interval begins from this completion point: "
@@ -649,6 +713,11 @@ async def _defer_then_acquire(
     return lease
 
 
+def _session_thread_name(now: datetime) -> str:
+    """Name a session thread by its start time; LLM titles are a future option."""
+    return f"Session {now.astimezone(UTC):%Y-%m-%d %H:%M} UTC"
+
+
 def _format_scheduler_configuration(settings: Settings) -> str:
     state = "enabled" if settings.automatic_scheduler_enabled else "disabled"
     return f"Automatic scheduler configuration is **{state}** until restart."
@@ -684,6 +753,8 @@ def _missing_delivery_permissions(interaction: discord.Interaction) -> list[str]
         ("view_channel", "View Channel"),
         ("send_messages", "Send Messages"),
         ("read_message_history", "Read Message History"),
+        ("create_public_threads", "Create Public Threads"),
+        ("send_messages_in_threads", "Send Messages in Threads"),
     )
     return [label for attribute, label in required if not getattr(permissions, attribute)]
 
