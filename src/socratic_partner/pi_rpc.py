@@ -6,6 +6,8 @@ import asyncio
 import json
 import logging
 import shutil
+import subprocess
+import sys
 from contextlib import suppress
 from dataclasses import dataclass
 from pathlib import Path
@@ -105,6 +107,7 @@ class PiRpcClient:
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
                 limit=_SUBPROCESS_STREAM_LIMIT,
+                creationflags=_subprocess_creationflags(),
             )
         except OSError as exc:
             raise PiRpcError(f"Could not start Pi: {exc}") from exc
@@ -324,6 +327,18 @@ class PiRpcClient:
                 self._events.get_nowait()
             except asyncio.QueueEmpty:
                 return
+
+
+def _subprocess_creationflags() -> int:
+    """Hide the Pi console window on Windows.
+
+    Without CREATE_NO_WINDOW, Windows allocates a visible console for the Pi
+    subprocess. Closing that console kills Pi, and the next prompt then spawns
+    a new window — the observed pop-up/pop-away behavior. Pipes are unaffected.
+    """
+    if sys.platform == "win32":
+        return subprocess.CREATE_NO_WINDOW
+    return 0
 
 
 def _raise_for_assistant_error(assistant: dict[str, Any]) -> None:

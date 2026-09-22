@@ -6,7 +6,12 @@ from pathlib import Path
 
 import pytest
 
-from socratic_partner.pi_rpc import PiRpcClient, PiRpcError, _raise_for_assistant_error
+from socratic_partner.pi_rpc import (
+    PiRpcClient,
+    PiRpcError,
+    _raise_for_assistant_error,
+    _subprocess_creationflags,
+)
 
 ERROR_ASSISTANT = {
     "role": "assistant",
@@ -39,6 +44,19 @@ def test_rejects_settled_assistant_error() -> None:
 
 def test_accepts_successful_assistant_message() -> None:
     _raise_for_assistant_error(SUCCESS_ASSISTANT)
+
+
+def test_subprocess_creationflags_hide_console_only_on_windows(monkeypatch) -> None:
+    """Windows must hide the Pi console window; other platforms need no flags.
+
+    Regression: a visible console let users kill Pi by closing the window, and
+    the next prompt spawned a new pop-up. Asserting the flag value is coupled
+    to the Windows constant by necessity — that constant IS the contract.
+    """
+    monkeypatch.setattr(sys, "platform", "win32")
+    assert _subprocess_creationflags() == 0x08000000  # CREATE_NO_WINDOW
+    monkeypatch.setattr(sys, "platform", "linux")
+    assert _subprocess_creationflags() == 0
 
 
 async def test_wait_until_settled_returns_authoritative_assistant_event() -> None:
