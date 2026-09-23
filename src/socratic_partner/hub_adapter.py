@@ -177,6 +177,7 @@ class SocraticHubAdapter:
                 self.settings.discord_channel_id,
                 self.settings.callback_url,
                 display_name="Socrates",
+                avatar_url=self.settings.avatar_url,
             )
             logger.info("Registered the home channel with discord-hub.")
         result = await self.hub.put_commands(

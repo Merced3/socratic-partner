@@ -25,6 +25,7 @@ class Settings:
     callback_host: str
     callback_port: int
     callback_url: str
+    avatar_url: str | None
     test_mode: bool
     test_controls_enabled: bool
     log_level: str
@@ -60,6 +61,7 @@ class Settings:
         callback_url = environment.get("SOCRATIC_PARTNER_CALLBACK_URL", "").strip()
         if not callback_url:
             callback_url = f"http://localhost:{callback_port}/discord"
+        avatar_url = environment.get("SOCRATIC_PARTNER_AVATAR_URL", "").strip() or None
         test_mode = _parse_bool(environment.get("SOCRATIC_PARTNER_TEST_MODE", "true"))
         test_controls_enabled = _parse_bool(
             environment.get("SOCRATIC_PARTNER_TEST_CONTROLS_ENABLED", "false")
@@ -106,6 +108,7 @@ class Settings:
             callback_host=callback_host,
             callback_port=callback_port,
             callback_url=callback_url,
+            avatar_url=avatar_url,
             test_mode=test_mode,
             test_controls_enabled=test_controls_enabled,
             log_level=log_level,

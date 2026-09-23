@@ -29,6 +29,7 @@ SETTINGS = Settings(
     callback_host="127.0.0.1",
     callback_port=9100,
     callback_url="http://localhost:9100/discord",
+    avatar_url=None,
     test_mode=True,
     test_controls_enabled=False,
     log_level="INFO",
@@ -190,6 +191,22 @@ def test_scheduler_status_formats_only_observed_runtime_state(tmp_path) -> None:
     assert _format_scheduler_status(adapter) == "disabled"
 
 
+async def test_start_registers_identity_with_avatar(tmp_path) -> None:
+    """The webhook identity (ADR 0002) carries the configured name and avatar;
+    a missing avatar must register as absent, not as an empty string."""
+    hub = _FakeHub()
+    store = StateStore(tmp_path / "state.sqlite3", default_interval_seconds=3600)
+    store.initialize()
+    settings = replace(SETTINGS, avatar_url="https://example.test/socrates.png")
+    adapter = SocraticHubAdapter(settings, store, _FakePi(), hub)
+
+    await adapter.start()
+
+    assert hub.registration is not None
+    assert hub.registration["display_name"] == "Socrates"
+    assert hub.registration["avatar_url"] == "https://example.test/socrates.png"
+
+
 # -- fixtures ---------------------------------------------------------------
 
 
@@ -210,6 +227,7 @@ class _FakeHub:
     def __init__(self) -> None:
         self.posted: list[tuple[int, str]] = []
         self.commands: list[dict] | None = None
+        self.registration: dict | None = None
 
     async def health(self) -> dict:
         return {"status": "ok", "discord_connected": True}
@@ -225,6 +243,7 @@ class _FakeHub:
         return []
 
     async def register_channel(self, channel_id: int, callback_url: str, **kw: object) -> dict:
+        self.registration = {"channel_id": channel_id, "callback_url": callback_url, **kw}
         return {"channel_id": str(channel_id), "callback_url": callback_url}
 
     async def put_commands(self, callback_url: str, commands: list[dict]) -> dict:

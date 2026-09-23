@@ -22,6 +22,7 @@ def test_loads_valid_environment() -> None:
     assert settings.callback_host == "127.0.0.1"
     assert settings.callback_port == 9100
     assert settings.callback_url == "http://localhost:9100/discord"
+    assert settings.avatar_url is None
     assert settings.test_mode is True
     assert settings.test_controls_enabled is False
     assert settings.database_path.as_posix() == "data/socratic_partner.sqlite3"

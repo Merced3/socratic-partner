@@ -67,6 +67,7 @@ class HubClient:
         callback_url: str,
         *,
         display_name: str | None = None,
+        avatar_url: str | None = None,
     ) -> dict[str, Any]:
         payload: dict[str, Any] = {
             "channel_id": channel_id,
@@ -74,6 +75,8 @@ class HubClient:
         }
         if display_name is not None:
             payload["display_name"] = display_name
+        if avatar_url is not None:
+            payload["avatar_url"] = avatar_url
         return await self._request("POST", "/registrations", json=payload)
 
     async def put_commands(
