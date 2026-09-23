@@ -111,12 +111,11 @@ class HubConversationMessenger:
     async def reply(self, reference: object, text: str) -> None:
         if not isinstance(reference, InboundMessage):
             raise MessageDeliveryFailed("Reply reference was not an inbound message.")
+        # Deliberately NOT a Discord reply: reply_to_message_id forces the hub's
+        # plain bot path (webhooks cannot reply), which would strip the Socrates
+        # identity. A session thread already provides the reply's context.
         try:
-            await self.hub.post_message(
-                reference.channel_id,
-                text,
-                reply_to_message_id=reference.message_id,
-            )
+            await self.hub.post_message(reference.channel_id, text)
         except HubError as exc:
             raise MessageDeliveryFailed(str(exc)) from exc
 

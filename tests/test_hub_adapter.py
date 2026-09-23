@@ -12,6 +12,8 @@ from pathlib import Path
 
 from socratic_partner.config import Settings
 from socratic_partner.hub_adapter import (
+    HubConversationMessenger,
+    InboundMessage,
     SocraticHubAdapter,
     _format_interval,
     _format_scheduler_configuration,
@@ -207,6 +209,23 @@ async def test_start_registers_identity_with_avatar(tmp_path) -> None:
     assert hub.registration["avatar_url"] == "https://example.test/socrates.png"
 
 
+async def test_conversation_replies_do_not_use_reply_reference(tmp_path) -> None:
+    """Replies must keep the Socrates webhook identity.
+
+    reply_to_message_id forces the hub's plain bot path (webhooks cannot
+    reply), which stripped the identity in live testing; the session thread
+    already supplies the context a reply reference would.
+    """
+    hub = _FakeHub()
+    messenger = HubConversationMessenger(hub)
+    reference = InboundMessage(message_id="42", channel_id=999, text="hi")
+
+    await messenger.reply(reference, "an answer")
+
+    assert hub.posted == [(999, "an answer")]
+    assert "reply_to_message_id" not in hub.post_kwargs
+
+
 # -- fixtures ---------------------------------------------------------------
 
 
@@ -234,6 +253,7 @@ class _FakeHub:
 
     async def post_message(self, channel_id: int, text: str, **kwargs: object) -> dict:
         self.posted.append((channel_id, text))
+        self.post_kwargs = kwargs
         return {"id": "1", "channel_id": str(channel_id)}
 
     async def create_thread(self, channel_id: int, name: str) -> dict:
