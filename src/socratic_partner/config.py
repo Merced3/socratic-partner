@@ -19,7 +19,7 @@ class ConfigurationError(ValueError):
 
 @dataclass(frozen=True, slots=True)
 class Settings:
-    discord_test_channel_id: int
+    discord_channel_id: int
     discord_allowed_user_id: int
     hub_url: str
     callback_host: str
@@ -48,7 +48,7 @@ class Settings:
                 load_dotenv(dotenv_path=env_file, override=False)
             environment = os.environ
 
-        channel_id = _required_positive_int(environment, "DISCORD_TEST_CHANNEL_ID")
+        channel_id = _required_positive_int(environment, "DISCORD_CHANNEL_ID")
         user_id = _required_positive_int(environment, "DISCORD_ALLOWED_USER_ID")
         hub_url = environment.get("SOCRATIC_PARTNER_HUB_URL", "http://localhost:8100").strip()
         callback_host = environment.get(
@@ -100,7 +100,7 @@ class Settings:
             raise ConfigurationError("SOCRATIC_PARTNER_PI_SESSION_DIRECTORY cannot be empty.")
 
         return cls(
-            discord_test_channel_id=channel_id,
+            discord_channel_id=channel_id,
             discord_allowed_user_id=user_id,
             hub_url=hub_url,
             callback_host=callback_host,

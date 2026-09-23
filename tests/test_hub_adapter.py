@@ -23,7 +23,7 @@ from socratic_partner.hub_adapter import (
 from socratic_partner.store import StateStore
 
 SETTINGS = Settings(
-    discord_test_channel_id=200,
+    discord_channel_id=200,
     discord_allowed_user_id=300,
     hub_url="http://localhost:8100",
     callback_host="127.0.0.1",

@@ -5,7 +5,7 @@ import pytest
 from socratic_partner.config import ConfigurationError, Settings
 
 VALID_ENVIRONMENT = {
-    "DISCORD_TEST_CHANNEL_ID": "200",
+    "DISCORD_CHANNEL_ID": "200",
     "DISCORD_ALLOWED_USER_ID": "300",
     "SOCRATIC_PARTNER_TEST_MODE": "true",
     "SOCRATIC_PARTNER_LOG_LEVEL": "INFO",
@@ -16,7 +16,7 @@ def test_loads_valid_environment() -> None:
     """Document stable defaults through the public loader, without reading a real `.env`."""
     settings = Settings.from_environment(VALID_ENVIRONMENT, env_file=None)
 
-    assert settings.discord_test_channel_id == 200
+    assert settings.discord_channel_id == 200
     assert settings.discord_allowed_user_id == 300
     assert settings.hub_url == "http://localhost:8100"
     assert settings.callback_host == "127.0.0.1"
@@ -58,9 +58,9 @@ def test_explicitly_enables_automatic_scheduler() -> None:
 
 
 def test_rejects_missing_home_channel() -> None:
-    environment = {**VALID_ENVIRONMENT, "DISCORD_TEST_CHANNEL_ID": ""}
+    environment = {**VALID_ENVIRONMENT, "DISCORD_CHANNEL_ID": ""}
 
-    with pytest.raises(ConfigurationError, match="DISCORD_TEST_CHANNEL_ID is required"):
+    with pytest.raises(ConfigurationError, match="DISCORD_CHANNEL_ID is required"):
         Settings.from_environment(environment, env_file=None)
 
 

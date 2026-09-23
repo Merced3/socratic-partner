@@ -76,7 +76,7 @@ Copy-Item .env.example .env
 Fill in `.env` locally:
 
 ```dotenv
-DISCORD_TEST_CHANNEL_ID=your-home-channel-id
+DISCORD_CHANNEL_ID=your-home-channel-id
 DISCORD_ALLOWED_USER_ID=your-user-id
 SOCRATIC_PARTNER_HUB_URL=http://localhost:8100
 SOCRATIC_PARTNER_CALLBACK_HOST=127.0.0.1

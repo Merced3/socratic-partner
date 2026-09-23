@@ -66,8 +66,8 @@ def message_authorized(
     return (
         settings.test_mode
         and (
-            channel_id == settings.discord_test_channel_id
-            or parent_channel_id == settings.discord_test_channel_id
+            channel_id == settings.discord_channel_id
+            or parent_channel_id == settings.discord_channel_id
         )
         and user_id == settings.discord_allowed_user_id
     )
@@ -87,7 +87,7 @@ def command_authorized(
     """
     if not settings.test_mode or user_id != settings.discord_allowed_user_id:
         return False
-    if channel_id == settings.discord_test_channel_id:
+    if channel_id == settings.discord_channel_id:
         return True
     return (
         active_conversation_channel_id is not None
@@ -172,9 +172,9 @@ class SocraticHubAdapter:
             _safe_int(entry.get("channel_id"))
             for entry in await self.hub.get_registrations()
         }
-        if self.settings.discord_test_channel_id not in registered:
+        if self.settings.discord_channel_id not in registered:
             await self.hub.register_channel(
-                self.settings.discord_test_channel_id,
+                self.settings.discord_channel_id,
                 self.settings.callback_url,
                 display_name="Socrates",
             )
@@ -553,7 +553,7 @@ class SocraticHubAdapter:
 
     async def _notify_automatic_failure(self, failure: ClassifiedError) -> None:
         await self.hub.post_message(
-            self.settings.discord_test_channel_id,
+            self.settings.discord_channel_id,
             "**Automatic activation paused**\n" + failure.discord_message(),
         )
 
@@ -562,7 +562,7 @@ class SocraticHubAdapter:
     async def _create_session_thread(self) -> int:
         try:
             result = await self.hub.create_thread(
-                self.settings.discord_test_channel_id,
+                self.settings.discord_channel_id,
                 _session_thread_name(datetime.now(UTC)),
             )
         except HubError as exc:
@@ -572,7 +572,7 @@ class SocraticHubAdapter:
     async def _missing_delivery_permissions(self) -> list[str]:
         try:
             granted = await self.hub.channel_permissions(
-                self.settings.discord_test_channel_id
+                self.settings.discord_channel_id
             )
         except HubError:
             logger.warning("Permission preflight unavailable; proceeding optimistically.")
