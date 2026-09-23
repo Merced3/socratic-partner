@@ -46,11 +46,13 @@ A small composition layer necessarily knows how to register the application oper
 
 ## Component ownership
 
-### Discord adapter
+### discord-hub adapter
 
-- Receives allowlisted commands and messages.
-- Sends ephemeral control responses.
-- Sends persistent conversation messages.
+- Owns no Discord connection and imports no Discord library; discord-hub does.
+- Receives allowlisted command invocations and messages through a local HTTP callback.
+- Sends ephemeral control responses (via interaction responses/followups) and persistent conversation messages (via the hub API).
+- Enforces the channel/user authorization boundary project-side (ADR 0003).
+- Creates one session thread per conversation in the configured home channel.
 - Does not construct Socratic reasoning itself.
 
 ### Socratic application behavior
@@ -82,14 +84,14 @@ operations with real temporary SQLite and controlled agent/message ports.
 - Stores no secrets.
 - Runtime files remain ignored by Git and owned by the deployment.
 
-### Process supervisor (future)
+### Process lifecycle
 
-Windows Task Scheduler, a Windows service, systemd, or an equivalent operating-system facility will start the process at boot and restart it after failure. Socratic Partner and Automation Harness should not reimplement an operating-system process supervisor.
+The automation-harness is embedded as a dependency and owns the process lifecycle: single-instance lock, graceful stop, supervised restart with backoff, structured logs, and `data/status.json`. Windows Task Scheduler (or an equivalent OS facility) starts the process at boot; see [`setup/windows-autostart.md`](setup/windows-autostart.md).
 
 ## Session boundaries
 
 Every `/ask-now` or future scheduled activation starts a fresh Pi session. Long-term continuity should later come from selected structured memory—session cards, confirmed observations, open questions, and relevant source records—not one indefinitely growing raw conversation.
 
-## Automation Harness
+## Automation Harness and discord-hub
 
-Automation Harness is a separate project intended for reusable lifecycle, scheduling, recovery, health, and adapter contracts. Socratic Partner does not depend on it yet. A shared capability should be extracted only after a second real automation proves that both need the same behavior.
+Automation Harness is embedded as the runtime lifecycle owner (adopted once discord-hub proved the second real need). discord-hub owns the only Discord connection in the ecosystem; Socratic Partner talks to it over a local HTTP API and holds no Discord credentials. Both remain separate projects with their own releases.

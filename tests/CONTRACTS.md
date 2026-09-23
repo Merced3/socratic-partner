@@ -33,6 +33,21 @@ This matrix records what evidence exists, its level, and important gaps. “Manu
 | Schema versions 1–3 upgrade to version 4 without data loss | Historical fixtures in `test_store.py` preserve public state; v3 also preserves a completed conversation | Real temporary SQLite migration contract | Add new source-version fixtures before any future migration |
 | Start → reply → reconstruct → continue → complete works through public application operations | Application workflow test | Automated application black box | Real Discord/provider/process path remains bounded manual acceptance |
 
+## v0.1.1–v0.5.0 transport and lifecycle update
+
+The v0.5.0 hub migration changed the Discord boundary: discord.py rows above now read as hub-mediated. Discord delivery, reconnect, and identity evidence belongs to discord-hub's own matrix; Socratic Partner evidence now covers the hub contract and project-side policy.
+
+| Product contract | Current evidence | Level | Gap / next evidence |
+| --- | --- | --- | --- |
+| Pi subprocess never shows a console window | `test_subprocess_creationflags_hide_console_only_on_windows` + live observation | Unit + manual | None for current platform |
+| `/model` switches the model in any conversation state | `test_fake_subprocess_switches_model_across_real_pipes` + live `/model` acceptance | Fake-subprocess contract + manual | Autocomplete deferred (hub gap) |
+| Each session lives in its own thread; replies outside it are ignored | Authorization policy tests + live acceptance in `#reflection` | Unit + manual black box | Thread delete/archive deferred (hub gap) |
+| Discord interaction works without a Discord library or token | Hub client contract tests + live acceptance | Contract + manual black box | Hub downtime delivery is silent-miss (accepted) |
+| Authorization gating stays project-side | `test_hub_adapter.py` boundary permutations | Pure policy unit tests | None |
+| Harness owns lock, supervision, and prompt stop | Live acceptance: second instance refused, backoff recovery, fast Ctrl+C | Manual black box | None |
+| Hub timeouts are reported distinctly from unreachability | `test_slow_hub_reports_timeout_not_unreachable` | Contract | None |
+| Textless Pi responses are diagnosable without exposing content | `test_fake_subprocess_empty_text_is_diagnosable` | Fake-subprocess contract | Root cause of the observed instance unknown (transient) |
+
 ## Remaining bounded evidence
 
 Automatic scheduling has completed controlled rollout. Remaining evidence should not delay the soak unnecessarily:
