@@ -80,6 +80,19 @@ def main() -> None:
             _respond(request)
             if message == "timeout":
                 continue
+            if message == "empty-text":
+                _write(
+                    {
+                        "type": "message_end",
+                        "message": {
+                            "role": "assistant",
+                            "stopReason": "stop",
+                            "content": [{"type": "thinking", "thinking": "secret"}],
+                        },
+                    }
+                )
+                _write({"type": "agent_settled"})
+                continue
             if message == "malformed":
                 sys.stdout.write("this is not json\n")
                 sys.stdout.flush()

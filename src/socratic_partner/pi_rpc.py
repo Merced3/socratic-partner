@@ -207,7 +207,7 @@ class PiRpcClient:
             stats_response = await self._request({"type": "get_session_stats"})
             text = _assistant_text(assistant)
             if not text.strip():
-                raise PiRpcError("Pi settled without a text response.")
+                raise PiRpcError(_empty_text_detail(assistant))
 
             state = _response_data(state_response)
             stats = _response_data(stats_response)
@@ -359,6 +359,27 @@ def _subprocess_creationflags() -> int:
     if sys.platform == "win32":
         return subprocess.CREATE_NO_WINDOW
     return 0
+
+
+def _empty_text_detail(assistant: dict[str, Any]) -> str:
+    """Describe a textless assistant message without exposing its content.
+
+    stopReason and content-block types are diagnostic metadata; message text
+    itself stays out of logs and error records.
+    """
+    stop_reason = assistant.get("stopReason")
+    content = assistant.get("content")
+    if isinstance(content, list):
+        block_types = [
+            str(item.get("type")) for item in content if isinstance(item, dict)
+        ]
+        shape = ",".join(block_types) or "empty-list"
+    else:
+        shape = type(content).__name__
+    return (
+        "Pi settled without a text response "
+        f"(stopReason={stop_reason!r}, content=[{shape}])."
+    )
 
 
 def _raise_for_assistant_error(assistant: dict[str, Any]) -> None:

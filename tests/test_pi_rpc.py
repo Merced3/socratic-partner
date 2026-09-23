@@ -213,6 +213,20 @@ async def test_fake_subprocess_switches_model_across_real_pipes(tmp_path) -> Non
         await client.close()
 
 
+async def test_fake_subprocess_empty_text_is_diagnosable(tmp_path) -> None:
+    """A textless assistant message must be diagnosable from metadata alone.
+
+    Motivated by a live failure whose logs could not distinguish a transient
+    empty completion from a thinking-only final message.
+    """
+    client = _subprocess_client(tmp_path)
+    try:
+        with pytest.raises(PiRpcError, match=r"stopReason='stop'.*thinking"):
+            await client.prompt("empty-text")
+    finally:
+        await client.close()
+
+
 async def test_fake_subprocess_recovers_after_malformed_output(tmp_path) -> None:
     """One malformed stdout line must not discard the next complete valid protocol exchange."""
     client = _subprocess_client(tmp_path)
