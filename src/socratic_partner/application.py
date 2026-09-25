@@ -219,6 +219,35 @@ class SocraticApplication:
 
         return CompletedConversation(state=state, session_card=result.text)
 
+    async def discard_conversation(self, *, channel_id: int) -> Conversation:
+        """Delete a conversation's durable record without closing it (test cleanup).
+
+        The most recent conversation recorded for the invoking channel is
+        discarded; when the channel has none (e.g. the home channel, which
+        never hosts conversations), the active conversation is the target.
+        No model call is made, and no session card is produced. The caller
+        owns any Discord-side cleanup.
+        """
+        lease = self.operation_gate.try_acquire("discarding a Socratic conversation")
+        if lease is None:
+            raise OperationBusy(self.operation_gate.current_operation or "unknown")
+        async with lease:
+            conversation = self.store.get_latest_conversation_in_channel(channel_id)
+            active = self.store.get_active_conversation()
+            if active is not None and (
+                conversation is None or active.channel_id == channel_id
+            ):
+                conversation = active
+            if conversation is None:
+                raise NoActiveConversation(
+                    "There is no conversation recorded for this channel."
+                )
+            try:
+                self.store.delete_conversation(conversation.id)
+            except (sqlite3.Error, RuntimeError) as exc:
+                raise StatePersistenceFailed(str(exc)) from exc
+            return conversation
+
     def _require_active_conversation(self, channel_id: int) -> Conversation:
         conversation = self.store.get_active_conversation()
         if conversation is None:

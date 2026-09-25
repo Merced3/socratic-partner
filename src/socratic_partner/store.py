@@ -129,6 +129,63 @@ class StateStore:
             ).fetchone()
         return _conversation_from_row(row) if row is not None else None
 
+    def get_latest_conversation_in_channel(self, channel_id: int) -> Conversation | None:
+        """Most recent conversation of any status in a channel (e.g. a session thread)."""
+        with self._connection() as connection:
+            row = connection.execute(
+                """
+                SELECT id, status, channel_id, question_message_id, session_card,
+                       started_at, completed_at, updated_at
+                FROM conversations
+                WHERE channel_id = ?
+                ORDER BY started_at DESC
+                LIMIT 1
+                """,
+                (channel_id,),
+            ).fetchone()
+        return _conversation_from_row(row) if row is not None else None
+
+    def delete_conversation(
+        self, conversation_id: str, *, now: datetime | None = None
+    ) -> ApplicationState:
+        """Remove a conversation record entirely (test cleanup, not normal closure).
+
+        Discarding an active conversation resumes automation timing from the
+        discard point, mirroring completion; deleting an already-completed
+        record leaves scheduling untouched.
+        """
+        timestamp = _as_utc(now or datetime.now(UTC))
+        with self._connection() as connection:
+            row = connection.execute(
+                "SELECT status FROM conversations WHERE id = ?", (conversation_id,)
+            ).fetchone()
+            if row is None:
+                raise RuntimeError("Conversation is missing.")
+            connection.execute(
+                "DELETE FROM conversations WHERE id = ?", (conversation_id,)
+            )
+            if row["status"] in (ConversationStatus.OPEN, ConversationStatus.CLOSING):
+                state = connection.execute(
+                    "SELECT status, interval_seconds FROM application_state WHERE id = ?",
+                    (_SINGLETON_ID,),
+                ).fetchone()
+                if state is None:
+                    raise RuntimeError("Application state is missing.")
+                next_question_at = None
+                if state["status"] == ApplicationStatus.WAITING:
+                    next_question_at = (
+                        timestamp + timedelta(seconds=state["interval_seconds"])
+                    ).isoformat()
+                connection.execute(
+                    """
+                    UPDATE application_state
+                    SET next_question_at = ?, updated_at = ?
+                    WHERE id = ?
+                    """,
+                    (next_question_at, timestamp.isoformat(), _SINGLETON_ID),
+                )
+        return self.get_state()
+
     def start_conversation(
         self,
         *,

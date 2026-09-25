@@ -135,14 +135,34 @@ class SocraticHubAdapter:
         hub: HubClient,
     ) -> None:
         self.settings = settings
-        self.store = store
         self.pi_client = pi_client
         self.hub = hub
         self.operation_gate = OperationGate()
+        self._messenger = HubConversationMessenger(hub)
+        self._live_store = store
+        self._test_store: StateStore | None = None
+        self._activate_store(store)
+        self._stopping = False
+        self._stop_event = asyncio.Event()
+        self._scheduler_clock = lambda: datetime.now(UTC)
+
+    @property
+    def testing_active(self) -> bool:
+        """True while the isolated test data store is swapped in."""
+        return self.store is not self._live_store
+
+    def _activate_store(self, store: StateStore) -> None:
+        """Point the application service and scheduler at a data store.
+
+        Swapping stores is how `/testing` isolates test data: the live store
+        is left untouched (including any open conversation) and resumed
+        exactly as left when testing ends.
+        """
+        self.store = store
         self.conversation_service = SocraticApplication(
             store=store,
-            agent=pi_client,
-            messenger=HubConversationMessenger(hub),
+            agent=self.pi_client,
+            messenger=self._messenger,
             operation_gate=self.operation_gate,
         )
         self.scheduler = (
@@ -153,12 +173,9 @@ class SocraticHubAdapter:
                 kickoff=self._automatic_kickoff,
                 notify_failure=self._notify_automatic_failure,
             )
-            if settings.automatic_scheduler_enabled
+            if self.settings.automatic_scheduler_enabled
             else None
         )
-        self._stopping = False
-        self._stop_event = asyncio.Event()
-        self._scheduler_clock = lambda: datetime.now(UTC)
 
     # -- lifecycle ---------------------------------------------------------
 
@@ -337,6 +354,7 @@ class SocraticHubAdapter:
                     f"- Interval: `{_format_interval(state.interval_seconds)}`",
                     f"- Next activation: {_format_next_activation(state)}",
                     f"- Discord (via hub): `{hub_status}`",
+                    f"- Data store: `{'test (isolated)' if self.testing_active else 'live'}`",
                     "- Persistence: `ready`",
                     f"- Agent runtime: `{_format_agent_runtime(self.pi_client)}`",
                     f"- Pi session: `{_format_session(state)}`",
@@ -380,6 +398,57 @@ class SocraticHubAdapter:
                 "Short **test interval** set to "
                 f"**{_format_interval(state.interval_seconds)}**. {timing} "
                 "Restore `/interval` to the intended hours after testing."
+            ),
+            "ephemeral": True,
+        }
+
+    async def _immediate_testing(self, payload: dict) -> dict:
+        """Swap between the live and isolated test data stores.
+
+        Refused while a conversation is open in the current store: the Pi
+        session is shared, so a mid-conversation swap would cross-contaminate
+        the two stores' recorded sessions.
+        """
+        enabled = bool((payload.get("options") or {}).get("enabled"))
+        if enabled == self.testing_active:
+            store_name = "test" if enabled else "live"
+            return {
+                "text": f"The **{store_name}** data store is already active.",
+                "ephemeral": True,
+            }
+        if self.store.get_active_conversation() is not None:
+            return {
+                "text": (
+                    "A conversation is open in the current data store. Close it "
+                    "(`/done`) or discard it (`/delete-session`) before switching."
+                ),
+                "ephemeral": True,
+            }
+        if enabled:
+            if self._test_store is None:
+                self._test_store = StateStore(
+                    self.settings.test_database_path,
+                    default_interval_seconds=self.settings.default_interval_seconds,
+                )
+                self._test_store.initialize()
+                logger.info(
+                    "Initialized the isolated test data store at %s.",
+                    self.settings.test_database_path,
+                )
+            self._activate_store(self._test_store)
+        else:
+            self._activate_store(self._live_store)
+        store_name = "test" if enabled else "live"
+        logger.info("Switched to the %s data store.", store_name)
+        return {
+            "text": (
+                f"Now using the **{store_name}** data store. "
+                + (
+                    "Nothing you do will touch live data. Run `/testing` with "
+                    "`enabled: false` to switch back."
+                    if enabled
+                    else "Live data is exactly as you left it."
+                )
             ),
             "ephemeral": True,
         }
@@ -540,6 +609,68 @@ class SocraticHubAdapter:
             "It applies to the next model call, including any active conversation."
         )
 
+    async def _deferred_delete_session(self, payload: dict) -> str:
+        """Discard a conversation's local state, then delete its Discord thread.
+
+        Local cleanup is entirely ours; thread deletion is a hub primitive
+        that may not exist yet — a 404 degrades to "delete it manually".
+        When invoked inside the thread being deleted, deletion is delayed so
+        this follow-up can still be delivered there first.
+        """
+        channel_id = _safe_int(payload.get("channel_id"))
+        if channel_id is None:
+            return "The conversation channel is unavailable."
+        try:
+            conversation = await self.conversation_service.discard_conversation(
+                channel_id=channel_id
+            )
+        except OperationBusy as exc:
+            return f"{exc} Retry shortly."
+        except NoActiveConversation:
+            return "There is no conversation recorded for this channel."
+        except StatePersistenceFailed:
+            logger.exception("Could not discard the conversation record.")
+            return (
+                "The conversation's local state could not be removed. Check "
+                "`/status` and the local logs; nothing was deleted in Discord."
+            )
+
+        if conversation.channel_id == channel_id:
+            asyncio.create_task(self._delete_thread_after_followup(conversation.channel_id))
+            return (
+                "Conversation discarded: database record and local state removed. "
+                "This thread will be deleted in a few seconds if the hub supports "
+                "thread deletion; otherwise delete it manually."
+            )
+        try:
+            await self.hub.delete_thread(conversation.channel_id)
+        except HubError as exc:
+            if exc.status_code == 404:
+                return (
+                    "Conversation discarded: database record and local state removed. "
+                    "The hub cannot delete threads yet — delete the thread manually."
+                )
+            logger.exception("Thread deletion failed after discarding a conversation.")
+            return (
+                "Conversation discarded locally, but the Discord thread could not "
+                "be deleted. Delete it manually."
+            )
+        return "Conversation discarded and its Discord thread deleted."
+
+    async def _delete_thread_after_followup(self, thread_id: int) -> None:
+        await asyncio.sleep(3)
+        try:
+            await self.hub.delete_thread(thread_id)
+        except HubError as exc:
+            if exc.status_code == 404:
+                logger.info(
+                    "The hub cannot delete threads yet; thread %s left for manual "
+                    "deletion.",
+                    thread_id,
+                )
+            else:
+                logger.exception("Delayed thread deletion failed for %s.", thread_id)
+
     # -- scheduler glue --------------------------------------------------------
 
     async def _automatic_kickoff(self, lease: OperationLease) -> None:
@@ -606,6 +737,25 @@ class SocraticHubAdapter:
             {"name": "ask-test", "description": "Run a safe Pi connectivity test."},
             {"name": "ask-now", "description": "Start a Socratic conversation now."},
             {"name": "done", "description": "Close the active Socratic conversation."},
+            {
+                "name": "delete-session",
+                "description": (
+                    "Discard a conversation's local state and delete its thread "
+                    "(test cleanup)."
+                ),
+            },
+            {
+                "name": "testing",
+                "description": "Switch between the live and isolated test data stores.",
+                "options": [
+                    {
+                        "name": "enabled",
+                        "description": "true = isolated test store, false = live store.",
+                        "type": "boolean",
+                        "required": True,
+                    }
+                ],
+            },
             {
                 "name": "interval",
                 "description": "Set hours between conversations.",

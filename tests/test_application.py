@@ -334,3 +334,66 @@ async def test_failed_session_card_delivery_reopens_conversation(tmp_path) -> No
     active = store.get_active_conversation()
     assert active is not None
     assert active.status is ConversationStatus.OPEN
+
+
+async def test_discard_active_conversation_removes_record_without_model_work(tmp_path) -> None:
+    """Test cleanup must not spend model tokens or fabricate a session card.
+
+    Discard is the throwaway counterpart of `/done`: the record disappears
+    and automation resumes, but no card prompt is sent and nothing is
+    delivered to Discord by the application layer.
+    """
+    store = _store(tmp_path / "state.sqlite3")
+    agent = ScriptedAgent(["Opening question?"])
+    messenger = RecordingMessenger()
+    application = SocraticApplication(
+        store=store,
+        agent=agent,
+        messenger=messenger,
+        operation_gate=OperationGate(),
+    )
+    await application.start_conversation(channel_id=100)
+    prompts_before = agent.prompt_count
+
+    discarded = await application.discard_conversation(channel_id=100)
+
+    assert store.get_active_conversation() is None
+    assert store.get_conversation(discarded.id) is None
+    assert agent.prompt_count == prompts_before
+    assert store.get_state().next_question_at is not None
+
+
+async def test_discard_targets_latest_completed_conversation_in_channel(tmp_path) -> None:
+    """After `/done`, the session thread still exists; cleanup applies to it."""
+    store = _store(tmp_path / "state.sqlite3")
+    agent = ScriptedAgent(["Opening question?", "Session card"])
+    application = SocraticApplication(
+        store=store,
+        agent=agent,
+        messenger=RecordingMessenger(),
+        operation_gate=OperationGate(),
+    )
+    started = await application.start_conversation(channel_id=100)
+    await application.complete_conversation(channel_id=100)
+    scheduled = store.get_state().next_question_at
+
+    discarded = await application.discard_conversation(channel_id=100)
+
+    assert discarded.id == started.conversation.id
+    assert store.get_conversation(started.conversation.id) is None
+    assert store.get_state().next_question_at == scheduled
+
+
+async def test_discard_without_any_conversation_is_a_clear_error(tmp_path) -> None:
+    """Cleanup in a channel with nothing recorded must say so, not delete silently."""
+    from socratic_partner.application import NoActiveConversation
+
+    application = SocraticApplication(
+        store=_store(tmp_path / "state.sqlite3"),
+        agent=ScriptedAgent([]),
+        messenger=RecordingMessenger(),
+        operation_gate=OperationGate(),
+    )
+
+    with pytest.raises(NoActiveConversation):
+        await application.discard_conversation(channel_id=100)

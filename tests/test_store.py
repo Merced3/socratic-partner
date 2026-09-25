@@ -399,3 +399,61 @@ def test_version_3_upgrade_preserves_completed_conversation(tmp_path) -> None:
     assert conversation.started_at == datetime.fromisoformat(_HISTORICAL_TIME)
     assert conversation.completed_at == datetime.fromisoformat(_HISTORICAL_TIME)
     assert store.get_active_conversation() is None
+
+
+def test_delete_active_conversation_resumes_interval_from_discard_point(tmp_path) -> None:
+    """Discarding a test conversation must not leave automation unscheduled.
+
+    `/delete-session` replaces `/done` for throwaway sessions; if it skipped
+    rescheduling, the next automatic opening would never arrive after a test.
+    """
+    store = StateStore(tmp_path / "state.sqlite3", default_interval_seconds=7_200)
+    store.initialize()
+    started_at = datetime(2026, 8, 25, 12, 0, tzinfo=UTC)
+    store.start_conversation(
+        conversation_id="conversation-1",
+        channel_id=100,
+        question_message_id=200,
+        now=started_at,
+    )
+
+    discarded_at = started_at + timedelta(minutes=5)
+    state = store.delete_conversation("conversation-1", now=discarded_at)
+
+    assert store.get_active_conversation() is None
+    assert store.get_latest_conversation_in_channel(100) is None
+    assert state.next_question_at == discarded_at + timedelta(hours=2)
+
+
+def test_delete_completed_conversation_leaves_scheduling_untouched(tmp_path) -> None:
+    """Removing an already-closed test record is pure cleanup, not a lifecycle event."""
+    store = StateStore(tmp_path / "state.sqlite3", default_interval_seconds=7_200)
+    store.initialize()
+    now = datetime(2026, 8, 25, 12, 0, tzinfo=UTC)
+    store.start_conversation(
+        conversation_id="conversation-1",
+        channel_id=100,
+        question_message_id=200,
+        now=now,
+    )
+    store.mark_conversation_closing("conversation-1", now=now)
+    completed = store.complete_conversation(
+        "conversation-1", session_card="Provisional card", now=now
+    )
+
+    later = now + timedelta(hours=1)
+    state = store.delete_conversation("conversation-1", now=later)
+
+    assert store.get_latest_conversation_in_channel(100) is None
+    assert state.next_question_at == completed.next_question_at
+
+
+def test_delete_missing_conversation_fails_without_side_effects(tmp_path) -> None:
+    """A typo'd or double deletion must surface as an error, not silent success."""
+    store = StateStore(tmp_path / "state.sqlite3", default_interval_seconds=7_200)
+    store.initialize()
+
+    with pytest.raises(RuntimeError):
+        store.delete_conversation("missing")
+
+    assert store.get_state().next_question_at is None

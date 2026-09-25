@@ -47,6 +47,8 @@ The v0.5.0 hub migration changed the Discord boundary: discord.py rows above now
 | Harness owns lock, supervision, and prompt stop | Live acceptance: second instance refused, backoff recovery, fast Ctrl+C | Manual black box | None |
 | Hub timeouts are reported distinctly from unreachability | `test_slow_hub_reports_timeout_not_unreachable` | Contract | None |
 | Textless Pi responses are diagnosable without exposing content | `test_fake_subprocess_empty_text_is_diagnosable` | Fake-subprocess contract | Root cause of the observed instance unknown (transient) |
+| `/delete-session` removes local/durable state and requests thread deletion, degrading to manual deletion while the hub lacks the primitive | Store/application/adapter tests (`test_delete_*`, `test_discard_*`) | SQLite integration + application black box + adapter contract | Live Discord acceptance; hub thread-deletion endpoint is an open integration request |
+| `/testing` swaps to an isolated data store, refuses mid-conversation, and restores live state untouched | Adapter toggle tests | Adapter contract + real SQLite | Live Discord acceptance; gated behind test controls |
 
 ## Remaining bounded evidence
 

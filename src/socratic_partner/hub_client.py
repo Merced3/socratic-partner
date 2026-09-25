@@ -57,6 +57,10 @@ class HubClient:
             "POST", "/threads", json={"channel_id": channel_id, "name": name}
         )
 
+    async def delete_thread(self, thread_id: int) -> None:
+        """Delete a thread (requested contract; absent hubs answer 404)."""
+        await self._request("DELETE", f"/threads/{thread_id}")
+
     async def get_registrations(self) -> list[dict[str, Any]]:
         result = await self._request("GET", "/registrations")
         return result if isinstance(result, list) else []

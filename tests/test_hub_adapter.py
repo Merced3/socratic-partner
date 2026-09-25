@@ -22,6 +22,7 @@ from socratic_partner.hub_adapter import (
     command_authorized,
     message_authorized,
 )
+from socratic_partner.hub_client import HubError
 from socratic_partner.store import StateStore
 
 SETTINGS = Settings(
@@ -36,6 +37,7 @@ SETTINGS = Settings(
     test_controls_enabled=False,
     log_level="INFO",
     database_path=Path("data/test.sqlite3"),
+    test_database_path=Path("data/test.testing.sqlite3"),
     default_interval_seconds=24 * 60 * 60,
     pi_executable="pi",
     pi_session_directory=Path("data/pi-sessions"),
@@ -247,6 +249,8 @@ class _FakeHub:
         self.posted: list[tuple[int, str]] = []
         self.commands: list[dict] | None = None
         self.registration: dict | None = None
+        self.deleted_threads: list[int] = []
+        self.delete_thread_error: HubError | None = None
 
     async def health(self) -> dict:
         return {"status": "ok", "discord_connected": True}
@@ -261,6 +265,11 @@ class _FakeHub:
 
     async def get_registrations(self) -> list[dict]:
         return []
+
+    async def delete_thread(self, thread_id: int) -> None:
+        if self.delete_thread_error is not None:
+            raise self.delete_thread_error
+        self.deleted_threads.append(thread_id)
 
     async def register_channel(self, channel_id: int, callback_url: str, **kw: object) -> dict:
         self.registration = {"channel_id": channel_id, "callback_url": callback_url, **kw}
@@ -294,3 +303,106 @@ def _adapter(tmp_path: Path, settings: Settings) -> SocraticHubAdapter:
     store = StateStore(tmp_path / "state.sqlite3", default_interval_seconds=3600)
     store.initialize()
     return SocraticHubAdapter(settings, store, _FakePi(), _FakeHub())
+
+
+# -- /testing toggle and /delete-session ------------------------------------
+
+
+def _testing_settings(tmp_path: Path, **overrides) -> Settings:
+    return replace(
+        SETTINGS,
+        test_controls_enabled=True,
+        test_database_path=tmp_path / "testing.sqlite3",
+        **overrides,
+    )
+
+
+def test_testing_and_delete_session_commands_are_always_available(tmp_path) -> None:
+    """Both cleanup controls must stay reachable without a restart: `/testing`
+    taints nothing (isolated store, reversible, refused mid-conversation), and
+    an accidental live-DB test is exactly when `/delete-session` is needed.
+    Only `/test-interval`, which rewires the live automation rhythm, stays
+    gated behind test controls."""
+    adapter = _adapter(tmp_path, SETTINGS)
+    names = {c["name"] for c in adapter._command_declarations()}
+    assert "testing" in names
+    assert "delete-session" in names
+    assert "test-interval" not in names
+
+
+async def test_testing_toggle_swaps_store_and_restores_live_state(tmp_path) -> None:
+    """The live store must be untouched and resumed exactly as left.
+
+    This is the feature's core promise: test data can never taint live data,
+    because the two never share a database file.
+    """
+    adapter = _adapter(tmp_path, _testing_settings(tmp_path))
+    live_store = adapter.store
+
+    response = await adapter._immediate_testing(_command_payload("testing", {"enabled": True}))
+    assert adapter.testing_active
+    assert adapter.store is not live_store
+    assert adapter.store.database_path != live_store.database_path
+    assert "test" in response["text"]
+
+    adapter.store.pause()  # dirty the test store only
+
+    response = await adapter._immediate_testing(_command_payload("testing", {"enabled": False}))
+    assert not adapter.testing_active
+    assert adapter.store is live_store
+    assert live_store.get_state().status.value == "WAITING"
+
+
+async def test_testing_toggle_refused_while_conversation_open(tmp_path) -> None:
+    """The Pi session is shared; swapping mid-conversation would cross-contaminate
+    the sessions each store has recorded."""
+    adapter = _adapter(tmp_path, _testing_settings(tmp_path))
+    adapter.store.start_conversation(
+        conversation_id="c1", channel_id=111, question_message_id=1
+    )
+
+    response = await adapter._immediate_testing(_command_payload("testing", {"enabled": True}))
+
+    assert not adapter.testing_active
+    assert "open" in response["text"]
+
+
+async def test_delete_session_from_home_channel_discards_and_deletes_thread(tmp_path) -> None:
+    """Black-box path for the common case: the user cleans up from the home
+    channel; local state goes and the hub is asked to delete the thread."""
+    hub = _FakeHub()
+    store = StateStore(tmp_path / "state.sqlite3", default_interval_seconds=3600)
+    store.initialize()
+    store.start_conversation(conversation_id="c1", channel_id=111, question_message_id=1)
+    adapter = SocraticHubAdapter(SETTINGS, store, _FakePi(), hub)
+
+    text = await adapter._deferred_delete_session(_command_payload("delete-session"))
+
+    assert store.get_active_conversation() is None
+    assert store.get_conversation("c1") is None
+    assert hub.deleted_threads == [111]
+    assert "deleted" in text
+
+
+async def test_delete_session_degrades_when_hub_lacks_thread_deletion(tmp_path) -> None:
+    """Until the hub ships the deletion primitive, local cleanup must still
+    succeed and the reply must say the thread needs manual deletion."""
+    hub = _FakeHub()
+    hub.delete_thread_error = HubError("not found", status_code=404)
+    store = StateStore(tmp_path / "state.sqlite3", default_interval_seconds=3600)
+    store.initialize()
+    store.start_conversation(conversation_id="c1", channel_id=111, question_message_id=1)
+    adapter = SocraticHubAdapter(SETTINGS, store, _FakePi(), hub)
+
+    text = await adapter._deferred_delete_session(_command_payload("delete-session"))
+
+    assert store.get_conversation("c1") is None
+    assert "manually" in text
+
+
+async def test_delete_session_without_conversation_says_so(tmp_path) -> None:
+    adapter = _adapter(tmp_path, SETTINGS)
+
+    text = await adapter._deferred_delete_session(_command_payload("delete-session"))
+
+    assert "no conversation" in text

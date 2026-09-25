@@ -30,6 +30,7 @@ class Settings:
     test_controls_enabled: bool
     log_level: str
     database_path: Path
+    test_database_path: Path
     default_interval_seconds: int
     pi_executable: str
     pi_session_directory: Path
@@ -71,6 +72,12 @@ class Settings:
             "SOCRATIC_PARTNER_DATABASE_PATH", "data/socratic_partner.sqlite3"
         ).strip()
         database_path = Path(database_path_value)
+        test_database_path = Path(
+            environment.get(
+                "SOCRATIC_PARTNER_TEST_DATABASE_PATH",
+                "data/socratic_partner.test.sqlite3",
+            ).strip()
+        )
         default_interval_hours = _positive_int_with_default(
             environment, "SOCRATIC_PARTNER_DEFAULT_INTERVAL_HOURS", default=24
         )
@@ -96,6 +103,12 @@ class Settings:
             )
         if not database_path_value:
             raise ConfigurationError("SOCRATIC_PARTNER_DATABASE_PATH cannot be empty.")
+        if test_database_path == database_path:
+            raise ConfigurationError(
+                "SOCRATIC_PARTNER_TEST_DATABASE_PATH must differ from "
+                "SOCRATIC_PARTNER_DATABASE_PATH; the test store exists to isolate "
+                "test data from live data."
+            )
         if not pi_executable:
             raise ConfigurationError("SOCRATIC_PARTNER_PI_EXECUTABLE cannot be empty.")
         if not pi_session_directory_value:
@@ -113,6 +126,7 @@ class Settings:
             test_controls_enabled=test_controls_enabled,
             log_level=log_level,
             database_path=database_path,
+            test_database_path=test_database_path,
             default_interval_seconds=default_interval_hours * 60 * 60,
             pi_executable=pi_executable,
             pi_session_directory=Path(pi_session_directory_value),
