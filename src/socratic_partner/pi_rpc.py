@@ -357,7 +357,10 @@ def _subprocess_creationflags() -> int:
     a new window — the observed pop-up/pop-away behavior. Pipes are unaffected.
     """
     if sys.platform == "win32":
-        return subprocess.CREATE_NO_WINDOW
+        # getattr: subprocess only defines the constant on Windows, but tests
+        # simulate win32 on any platform. The value (0x08000000) is fixed by
+        # Windows itself, so the fallback is exact.
+        return getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000)
     return 0
 
 
