@@ -13,7 +13,7 @@ socratic-partner-<milestone>
 ```text
 Continue development of Socratic Partner in:
 
-C:\Users\merce\Documents\Pi-Work-Station\socratic-partner
+C:\Users\cedgo\Documents\Coding\Automations\projects\socratic-partner
 
 Before planning or changing files:
 

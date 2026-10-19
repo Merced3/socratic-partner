@@ -4,16 +4,19 @@ A personal conversational AI designed to challenge assumptions, expose tradeoffs
 
 ## Current status
 
-The v0.09 automatic-scheduler milestone is complete, merged, and passed a one-week normal-use soak. The project is released as v0.1.0.
+The current production release is v0.6.0. Socratic Partner runs on the DigitalOcean/Tailscale VPS with discord-hub; the ops `RUNBOOK.md` is the operational source of truth.
 
 Implemented:
 
 - Environment-based configuration
 - Explicit guild, channel, and user allowlisting
 - Discord application-command registration
-- Private `/status`, `/ask-test`, `/ask-now`, `/done`, `/interval`, `/pause`, and `/resume` controls
+- Private `/status`, `/ask-test`, `/ask-now`, `/done`, `/delete-session`, `/testing`, `/interval`, `/pause`, `/resume`, and `/model` controls
 - Normal persistent Discord messages for Socratic conversations and session cards
-- One restart-recoverable active conversation at a time
+- One restart-recoverable active conversation at a time, hosted in its own Discord thread
+- Failed conversation starts delete their empty thread
+- Successful `/done` archives the completed session thread
+- `/model` autocomplete through discord-hub
 - Versioned Socratic behavior, opening, and session-card prompts
 - SQLite schema migration and durable `WAITING`/`PAUSED` state
 - Persisted interval and planned next-activation timestamp
@@ -32,15 +35,14 @@ Implemented:
 
 Not implemented yet:
 
-- Discord source ingestion or long-term derived memory
 - Automatic conversation completion
-- Threads, reactions on session cards, or direct messages
+- Discord source ingestion or long-term derived memory
 
 ## Requirements
 
 - Python 3.11 or newer
 - A private Discord server
-- discord-hub running locally (it owns the Discord connection)
+- A reachable discord-hub instance (production runs beside it on the VPS)
 
 ## Install for development
 
@@ -67,7 +69,7 @@ Send Messages in Threads.
 
 Enable Discord Developer Mode to copy the home channel and your user IDs.
 
-Copy the configuration template:
+Copy the configuration template for local development:
 
 ```powershell
 Copy-Item .env.example .env
@@ -95,7 +97,9 @@ SOCRATIC_PARTNER_LOG_LEVEL=INFO
 
 `.env` and runtime data are ignored by Git. On startup, Socratic Partner
 registers the home channel with the hub (its messages arrive as `Socrates`
-via the channel webhook) and publishes its slash commands through the hub.
+via the channel webhook), opts that channel into thread deletion, and
+publishes its slash commands through the hub. Production configuration and
+restart/rollback live in the ops `RUNBOOK.md`, not in this development guide.
 
 ## Run
 
@@ -125,7 +129,7 @@ Start with:
 - [`docs/development-workflow.md`](docs/development-workflow.md) — approval and acceptance process
 - [`docs/automatic-scheduler.md`](docs/automatic-scheduler.md) — implemented scheduler behavior and guarantees
 - [`docs/setup/windows.md`](docs/setup/windows.md) — validated Windows installation procedure
-- [`docs/setup/windows-autostart.md`](docs/setup/windows-autostart.md) — validated Windows Task Scheduler autostart
+- [`docs/setup/windows-autostart.md`](docs/setup/windows-autostart.md) — historical Windows Task Scheduler autostart; production uses the VPS ops runbook
 - [`docs/session-handoff.md`](docs/session-handoff.md) — clean new-session prompt template
 - [`tests/README.md`](tests/README.md) — black-box testing and test-rationale policy
 

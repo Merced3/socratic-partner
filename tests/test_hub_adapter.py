@@ -7,9 +7,13 @@ cross the allowlist through the new transport.
 
 from __future__ import annotations
 
+from collections import deque
 from dataclasses import replace
 from pathlib import Path
 
+import pytest
+
+from socratic_partner.application import AgentRequestFailed
 from socratic_partner.config import Settings
 from socratic_partner.hub_adapter import (
     HubConversationMessenger,
@@ -23,7 +27,8 @@ from socratic_partner.hub_adapter import (
     message_authorized,
 )
 from socratic_partner.hub_client import HubError
-from socratic_partner.store import StateStore
+from socratic_partner.pi_rpc import PiRpcError, PiRunResult
+from socratic_partner.store import ConversationStatus, StateStore
 
 SETTINGS = Settings(
     discord_channel_id=200,
@@ -209,6 +214,232 @@ async def test_start_registers_identity_with_avatar(tmp_path) -> None:
     assert hub.registration is not None
     assert hub.registration["display_name"] == "Socrates"
     assert hub.registration["avatar_url"] == "https://example.test/socrates.png"
+    assert hub.registration["allow_thread_deletion"] is True
+
+
+def test_model_option_declares_hub_autocomplete(tmp_path) -> None:
+    """Autocomplete must be declared or Discord will never route typing to us."""
+    adapter = _adapter(tmp_path, SETTINGS)
+
+    model_command = next(
+        command for command in adapter._command_declarations() if command["name"] == "model"
+    )
+
+    assert model_command["options"][0]["autocomplete"] is True
+
+
+async def test_failed_ask_now_deletes_the_empty_thread(tmp_path) -> None:
+    """A paid/model failure must not leave a Discord thread that looks like a session."""
+    hub = _FakeHub()
+    store = StateStore(tmp_path / "state.sqlite3", default_interval_seconds=3600)
+    store.initialize()
+    adapter = SocraticHubAdapter(
+        SETTINGS, store, _ScriptedPi([PiRpcError("provider unavailable")]), hub
+    )
+
+    text = await adapter._deferred_ask_now(_command_payload("ask-now"))
+
+    assert hub.deleted_threads == [111]
+    assert store.get_active_conversation() is None
+    assert "no answer was accepted" in text.lower()
+
+
+async def test_delivery_failure_after_thread_creation_deletes_the_thread(tmp_path) -> None:
+    """Cleanup belongs at the adapter boundary where the otherwise-orphaned thread exists."""
+    hub = _FakeHub()
+    hub.fail_next_post = True
+    store = StateStore(tmp_path / "state.sqlite3", default_interval_seconds=3600)
+    store.initialize()
+    adapter = SocraticHubAdapter(SETTINGS, store, _ScriptedPi(["Opening question?"]), hub)
+
+    text = await adapter._deferred_ask_now(_command_payload("ask-now"))
+
+    assert hub.deleted_threads == [111]
+    assert store.get_active_conversation() is None
+    assert "could not be delivered" in text
+
+
+async def test_persistence_failure_after_thread_creation_deletes_the_thread(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """SQLite failure must not leave Discord claiming a conversation exists when none was saved."""
+    hub = _FakeHub()
+    store = StateStore(tmp_path / "state.sqlite3", default_interval_seconds=3600)
+    store.initialize()
+
+    def fail_start_conversation(**kwargs: object) -> None:
+        raise RuntimeError("database closed")
+
+    monkeypatch.setattr(store, "start_conversation", fail_start_conversation)
+    adapter = SocraticHubAdapter(SETTINGS, store, _ScriptedPi(["Opening question?"]), hub)
+
+    text = await adapter._deferred_ask_now(_command_payload("ask-now"))
+
+    assert hub.deleted_threads == [111]
+    assert "could not be delivered or saved" in text
+
+
+async def test_thread_creation_failure_has_no_thread_to_delete(tmp_path) -> None:
+    """Cleanup must not invent an ID when the hub never created Discord state."""
+    hub = _FakeHub()
+    hub.create_thread_error = HubError("Discord rejected thread creation", status_code=502)
+    adapter = SocraticHubAdapter(SETTINGS, _adapter_store(tmp_path), _ScriptedPi([]), hub)
+
+    text = await adapter._deferred_ask_now(_command_payload("ask-now"))
+
+    assert hub.deleted_threads == []
+    assert "could not be delivered or saved" in text
+
+
+async def test_successful_ask_now_keeps_the_session_thread(tmp_path) -> None:
+    """Cleanup is only for startup failure; a real opening remains visible in its thread."""
+    hub = _FakeHub()
+    store = _adapter_store(tmp_path)
+    adapter = SocraticHubAdapter(SETTINGS, store, _ScriptedPi(["Opening question?"]), hub)
+
+    text = await adapter._deferred_ask_now(_command_payload("ask-now"))
+
+    assert hub.deleted_threads == []
+    assert store.get_active_conversation() is not None
+    assert "conversation is open" in text
+
+
+async def test_failed_automatic_kickoff_also_deletes_the_empty_thread(tmp_path) -> None:
+    """Automatic and manual starts share the thread-creation risk and cleanup guarantee."""
+    hub = _FakeHub()
+    store = _adapter_store(tmp_path)
+    adapter = SocraticHubAdapter(
+        SETTINGS, store, _ScriptedPi([PiRpcError("provider unavailable")]), hub
+    )
+    lease = adapter.operation_gate.try_acquire("automatic kickoff")
+    assert lease is not None
+
+    with pytest.raises(AgentRequestFailed):
+        async with lease:
+            await adapter._automatic_kickoff(lease)
+
+    assert hub.deleted_threads == [111]
+    assert store.get_active_conversation() is None
+
+
+async def test_start_reregisters_existing_channel_to_allow_thread_deletion(tmp_path) -> None:
+    """The deployed reflection registration predates the hub opt-in and must be upgraded."""
+    hub = _FakeHub()
+    hub.registrations = [{"channel_id": "200", "allow_thread_deletion": False}]
+    adapter = SocraticHubAdapter(SETTINGS, _adapter_store(tmp_path), _FakePi(), hub)
+
+    await adapter.start()
+
+    assert hub.deregistered_channels == [200]
+    assert hub.registration is not None
+    assert hub.registration["allow_thread_deletion"] is True
+
+
+async def test_done_archives_the_completed_thread(tmp_path) -> None:
+    """A completed session should leave the active channel without losing its record."""
+    hub = _FakeHub()
+    store = _adapter_store(tmp_path)
+    adapter = SocraticHubAdapter(
+        SETTINGS, store, _ScriptedPi(["Opening question?", "Session card"]), hub
+    )
+    await adapter._deferred_ask_now(_command_payload("ask-now"))
+    conversation = store.get_active_conversation()
+    assert conversation is not None
+
+    text = await adapter._deferred_done(
+        _command_payload("done", channel_id=str(conversation.channel_id))
+    )
+
+    assert hub.archived_threads == [(conversation.channel_id, True, False)]
+    assert store.get_conversation(conversation.id).status is ConversationStatus.COMPLETED
+    assert "Conversation closed" in text
+
+
+async def test_archive_failure_does_not_reopen_completed_conversation(tmp_path) -> None:
+    """Discord cleanup is important but must not corrupt the durable completion boundary."""
+    hub = _FakeHub()
+    hub.archive_thread_error = HubError("Discord archive failed", status_code=502)
+    store = _adapter_store(tmp_path)
+    adapter = SocraticHubAdapter(
+        SETTINGS, store, _ScriptedPi(["Opening question?", "Session card"]), hub
+    )
+    await adapter._deferred_ask_now(_command_payload("ask-now"))
+    conversation = store.get_active_conversation()
+    assert conversation is not None
+
+    text = await adapter._deferred_done(
+        _command_payload("done", channel_id=str(conversation.channel_id))
+    )
+
+    assert store.get_conversation(conversation.id).status is ConversationStatus.COMPLETED
+    assert "closed" in text.lower() and "archive" in text.lower()
+
+
+async def test_failed_done_does_not_archive_the_thread(tmp_path) -> None:
+    """Only a successful completion may tidy the thread away from the active channel."""
+    hub = _FakeHub()
+    store = _adapter_store(tmp_path)
+    adapter = SocraticHubAdapter(
+        SETTINGS,
+        store,
+        _ScriptedPi(["Opening question?", PiRpcError("provider unavailable")]),
+        hub,
+    )
+    await adapter._deferred_ask_now(_command_payload("ask-now"))
+    conversation = store.get_active_conversation()
+    assert conversation is not None
+
+    text = await adapter._deferred_done(
+        _command_payload("done", channel_id=str(conversation.channel_id))
+    )
+
+    assert hub.archived_threads == []
+    assert store.get_active_conversation() is not None
+    assert "remains open" in text
+
+
+async def test_model_autocomplete_filters_available_models(tmp_path) -> None:
+    """Autocomplete should turn Pi's model inventory into Discord's bounded choice shape."""
+    adapter = SocraticHubAdapter(SETTINGS, _adapter_store(tmp_path), _ScriptedPi([]), _FakeHub())
+
+    response = await adapter.dispatch(_autocomplete_payload("gpt"))
+
+    assert response == {
+        "choices": [{"name": "openai/gpt-5 — GPT-5", "value": "openai/gpt-5"}]
+    }
+
+
+async def test_model_autocomplete_limits_choices_and_survives_pi_failure(tmp_path) -> None:
+    """Discord accepts at most 25 choices and autocomplete must never leave the UI hanging."""
+    pi = _ScriptedPi([])
+    pi.models = [
+        {"provider": "test", "id": f"model-{index:02d}", "name": f"Model {index:02d}"}
+        for index in range(30)
+    ]
+    adapter = SocraticHubAdapter(SETTINGS, _adapter_store(tmp_path), pi, _FakeHub())
+
+    response = await adapter.dispatch(_autocomplete_payload("model"))
+    assert response is not None
+    assert len(response["choices"]) == 25
+
+    class FailingPi(_FakePi):
+        async def get_available_models(self) -> list[dict]:
+            raise PiRpcError("Pi unavailable")
+
+    adapter = SocraticHubAdapter(SETTINGS, _adapter_store(tmp_path), FailingPi(), _FakeHub())
+    assert await adapter.dispatch(_autocomplete_payload("anything")) == {"choices": []}
+
+
+async def test_model_autocomplete_obeys_authorization(tmp_path) -> None:
+    """The autocomplete route is a command surface and gets the same allowlist policy."""
+    adapter = SocraticHubAdapter(SETTINGS, _adapter_store(tmp_path), _ScriptedPi([]), _FakeHub())
+
+    assert await adapter.dispatch(_autocomplete_payload("gpt", user_id="301")) == {
+        "choices": []
+    }
+    assert await adapter.dispatch(_autocomplete_payload("gpt", channel_id="201")) == {
+        "choices": []
+    }
 
 
 async def test_conversation_replies_do_not_use_reply_reference(tmp_path) -> None:
@@ -231,15 +462,43 @@ async def test_conversation_replies_do_not_use_reply_reference(tmp_path) -> None
 # -- fixtures ---------------------------------------------------------------
 
 
-def _command_payload(command: str, options: dict | None = None) -> dict:
+def _command_payload(
+    command: str,
+    options: dict | None = None,
+    *,
+    channel_id: str = "200",
+    user_id: str = "300",
+) -> dict:
     return {
         "type": "command",
         "interaction_id": "1",
         "command": command,
         "options": options or {},
-        "channel_id": "200",
-        "user": {"id": "300", "name": "owner"},
+        "channel_id": channel_id,
+        "user": {"id": user_id, "name": "owner"},
     }
+
+
+def _autocomplete_payload(
+    value: str,
+    *,
+    channel_id: str = "200",
+    user_id: str = "300",
+) -> dict:
+    return {
+        "type": "autocomplete",
+        "command": "model",
+        "option": {"name": "model", "value": value},
+        "options": {"model": value},
+        "channel_id": channel_id,
+        "user": {"id": user_id, "name": "owner"},
+    }
+
+
+def _adapter_store(tmp_path: Path) -> StateStore:
+    store = StateStore(tmp_path / "state.sqlite3", default_interval_seconds=3600)
+    store.initialize()
+    return store
 
 
 class _FakeHub:
@@ -249,27 +508,49 @@ class _FakeHub:
         self.posted: list[tuple[int, str]] = []
         self.commands: list[dict] | None = None
         self.registration: dict | None = None
+        self.registrations: list[dict] = []
+        self.deregistered_channels: list[int] = []
         self.deleted_threads: list[int] = []
+        self.archived_threads: list[tuple[int, bool, bool]] = []
         self.delete_thread_error: HubError | None = None
+        self.archive_thread_error: HubError | None = None
+        self.create_thread_error: HubError | None = None
+        self.fail_next_post = False
 
     async def health(self) -> dict:
         return {"status": "ok", "discord_connected": True}
 
     async def post_message(self, channel_id: int, text: str, **kwargs: object) -> dict:
+        if self.fail_next_post:
+            self.fail_next_post = False
+            raise HubError("simulated delivery failure")
         self.posted.append((channel_id, text))
         self.post_kwargs = kwargs
         return {"id": "1", "channel_id": str(channel_id)}
 
     async def create_thread(self, channel_id: int, name: str) -> dict:
+        if self.create_thread_error is not None:
+            raise self.create_thread_error
         return {"id": "111", "name": name, "parent_channel_id": str(channel_id)}
 
     async def get_registrations(self) -> list[dict]:
-        return []
+        return self.registrations
+
+    async def deregister_channel(self, channel_id: int) -> None:
+        self.deregistered_channels.append(channel_id)
 
     async def delete_thread(self, thread_id: int) -> None:
         if self.delete_thread_error is not None:
             raise self.delete_thread_error
         self.deleted_threads.append(thread_id)
+
+    async def archive_thread(
+        self, thread_id: int, *, archived: bool = True, locked: bool = False
+    ) -> dict:
+        if self.archive_thread_error is not None:
+            raise self.archive_thread_error
+        self.archived_threads.append((thread_id, archived, locked))
+        return {"id": str(thread_id), "archived": archived, "locked": locked}
 
     async def register_channel(self, channel_id: int, callback_url: str, **kw: object) -> dict:
         self.registration = {"channel_id": channel_id, "callback_url": callback_url, **kw}
@@ -286,7 +567,13 @@ class _FakeHub:
         return None
 
     async def channel_permissions(self, channel_id: int) -> list[str]:
-        return []
+        return [
+            "view_channel",
+            "send_messages",
+            "read_message_history",
+            "create_public_threads",
+            "send_messages_in_threads",
+        ]
 
     async def close(self) -> None:
         return None
@@ -299,10 +586,44 @@ class _FakePi:
         return None
 
 
+class _ScriptedPi(_FakePi):
+    """Protocol-shaped Pi substitute for adapter workflows across real SQLite."""
+
+    def __init__(self, responses: list[str | Exception]) -> None:
+        self.responses = deque(responses)
+        self.new_session_count = 0
+        self.prompt_count = 0
+        self.models = [
+            {"provider": "openai", "id": "gpt-5", "name": "GPT-5"},
+            {"provider": "anthropic", "id": "claude-sonnet-4", "name": "Claude Sonnet 4"},
+        ]
+
+    async def new_session(self) -> dict[str, object]:
+        self.new_session_count += 1
+        return {"sessionId": f"session-{self.new_session_count}"}
+
+    async def prompt(self, message: str) -> PiRunResult:
+        self.prompt_count += 1
+        response = self.responses.popleft()
+        if isinstance(response, Exception):
+            raise response
+        return PiRunResult(
+            text=response,
+            session_id=f"session-{self.new_session_count}",
+            session_file=None,
+            provider="test-provider",
+            model_id="test-model",
+            input_tokens=1,
+            output_tokens=1,
+            cost=0.0,
+        )
+
+    async def get_available_models(self) -> list[dict]:
+        return self.models
+
+
 def _adapter(tmp_path: Path, settings: Settings) -> SocraticHubAdapter:
-    store = StateStore(tmp_path / "state.sqlite3", default_interval_seconds=3600)
-    store.initialize()
-    return SocraticHubAdapter(settings, store, _FakePi(), _FakeHub())
+    return SocraticHubAdapter(settings, _adapter_store(tmp_path), _FakePi(), _FakeHub())
 
 
 # -- /testing toggle and /delete-session ------------------------------------

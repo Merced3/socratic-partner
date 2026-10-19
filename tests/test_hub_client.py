@@ -114,3 +114,55 @@ async def test_channel_permissions_parses_granted_names() -> None:
     await client.close()
 
     assert granted == ["send_messages", "view_channel"]
+
+
+async def test_archive_thread_sends_reversible_cleanup_contract() -> None:
+    """Thread archive is Discord cleanup after the project durably closes its session."""
+    client, requests = _recording_client(
+        lambda request: httpx.Response(
+            200, json={"id": "111", "archived": True, "locked": False}
+        )
+    )
+
+    result = await client.archive_thread(111)
+    await client.close()
+
+    assert result == {"id": "111", "archived": True, "locked": False}
+    request = requests[0]
+    assert request.method == "POST" and request.url.path == "/threads/111/archive"
+    assert json.loads(request.content) == {"archived": True, "locked": False}
+
+
+async def test_register_channel_opts_into_thread_deletion() -> None:
+    """The hub refuses destructive thread deletion unless the parent opts in."""
+    client, requests = _recording_client(
+        lambda request: httpx.Response(201, json={"channel_id": "123"})
+    )
+
+    await client.register_channel(
+        123,
+        "http://localhost:9100/discord",
+        display_name="Socrates",
+        allow_thread_deletion=True,
+    )
+    await client.close()
+
+    request = requests[0]
+    assert request.method == "POST" and request.url.path == "/registrations"
+    assert json.loads(request.content) == {
+        "channel_id": 123,
+        "callback_url": "http://localhost:9100/discord",
+        "display_name": "Socrates",
+        "allow_thread_deletion": True,
+    }
+
+
+async def test_deregister_channel_uses_hub_contract() -> None:
+    """Re-registration must release the old webhook/claim before opting into deletion."""
+    client, requests = _recording_client(lambda request: httpx.Response(204))
+
+    await client.deregister_channel(123)
+    await client.close()
+
+    request = requests[0]
+    assert request.method == "DELETE" and request.url.path == "/registrations/123"

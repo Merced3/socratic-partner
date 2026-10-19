@@ -10,7 +10,9 @@ Read [`product-thesis.md`](product-thesis.md) first for the longer-lived purpose
 
 ## Current position
 
-The v0.09 automatic-scheduler milestone is complete and merged into `main`. Controlled rollout passed, and the one-week normal-use soak passed with no critical defects. The project is released as v0.1.0.
+The v0.09 automatic-scheduler milestone is complete and merged into `main`. Controlled rollout passed, and the one-week normal-use soak passed with no critical defects. The first stable release was v0.1.0; the post-release series now runs on the VPS and is at v0.6.0 after the 2026-10-19 post-VPS cleanup.
+
+The cleanup resolved the hub-era housekeeping gaps: failed starts remove empty threads, completed sessions archive their threads, `/model` autocomplete is live, and the production scheduler decision is recorded as **disabled**.
 
 Evidence established before the soak:
 
@@ -70,7 +72,7 @@ The release criteria were met:
 - the controlled rollout passed;
 - the one-week normal-use soak passed to the user’s standards;
 - no unresolved critical reliability defect remains;
-- Windows startup and restart behavior is documented and tested in [`setup/windows-autostart.md`](setup/windows-autostart.md);
+- startup and restart behavior was documented for the original Windows deployment; the current VPS runtime is documented in the ops `RUNBOOK.md`, while [`setup/windows-autostart.md`](setup/windows-autostart.md) is historical;
 - current documentation matches reality;
 - automatic behavior can be disabled immediately without data migration;
 - short test controls are disabled during normal use.

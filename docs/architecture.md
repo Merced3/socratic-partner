@@ -86,7 +86,7 @@ operations with real temporary SQLite and controlled agent/message ports.
 
 ### Process lifecycle
 
-The automation-harness is embedded as a dependency and owns the process lifecycle: single-instance lock, graceful stop, supervised restart with backoff, structured logs, and `data/status.json`. Windows Task Scheduler (or an equivalent OS facility) starts the process at boot; see [`setup/windows-autostart.md`](setup/windows-autostart.md).
+The automation-harness is embedded as a dependency and owns the in-process lifecycle: single-instance lock, graceful stop, supervised restart with backoff, structured logs, and `data/status.json`. Production startup/restart is owned by Docker Compose on the VPS; see the ops `RUNBOOK.md`. Windows Task Scheduler autostart is retained only as a historical deployment guide.
 
 ## Session boundaries
 

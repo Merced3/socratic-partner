@@ -1,5 +1,11 @@
 # Windows Autostart with Task Scheduler
 
+> **Historical Windows deployment guide.** Production Socratic Partner moved to the
+> DigitalOcean/Tailscale VPS on 2026-10-14 and is operated through Docker Compose;
+> use `C:\Users\cedgo\Documents\Coding\Automations\ops\RUNBOOK.md` for the current
+> runtime. Keep the laptop `SocraticPartner` task disabled unless the service is
+> deliberately moved back to Windows.
+
 This guide documents the exact method validated on Windows to run Socratic Partner automatically after logon, without opening a terminal. It uses the headless `pythonw.exe` so no console window appears.
 
 ## Prerequisite

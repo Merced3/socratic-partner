@@ -2,7 +2,9 @@
 
 ## Status
 
-Implemented, merged into `main`, and released as v0.1.0. The one-week normal-use soak passed with no critical defects. The scheduler remains disabled by default and uses SQLite schema version 4 without scheduler-specific persistent state.
+Implemented, merged into `main`, and originally released as v0.1.0. The one-week normal-use soak passed with no critical defects. The scheduler remains disabled by default and uses SQLite schema version 4 without scheduler-specific persistent state.
+
+**Production decision, 2026-10-19:** keep automatic scheduling disabled on the VPS. Manual `/ask-now` remains the only activation path until the user explicitly changes `SOCRATIC_PARTNER_AUTOMATIC_SCHEDULER_ENABLED` and restarts the service.
 
 ## Boundary
 
@@ -94,4 +96,4 @@ A forced clean missed-run restart was not required. Deterministic policy tests c
 
 ## Process supervision
 
-This scheduler decides when a conversation is due only while the process is running. Windows Task Scheduler, a Windows service, systemd, or another operating-system facility must eventually own startup and process restart.
+This scheduler decides when a conversation is due only while the process is running. Production startup and restart are owned by Docker Compose on the VPS; use the ops `RUNBOOK.md` for service operations. Windows Task Scheduler documentation is historical.

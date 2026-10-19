@@ -1,38 +1,48 @@
 # Needs from discord-hub
 
-**Status: one open request (thread deletion). Everything else is met.**
+**Status: all current requests are met.** There is no open integration request.
 
-Hand this file to a discord-hub session. Every request is written agnostically:
-the hub serves any project; no consuming project's vocabulary appears in the
-contracts. Reasons and example consumers are given so the hub session can
-judge the design, not just the ask.
+Hand this file to a discord-hub session when changing the shared boundary. Every
+request is written agnostically: the hub serves any project; no consuming
+project's vocabulary appears in the contracts. Reasons and example consumers are
+given so the hub session can judge the design, not just the ask.
 
-Principle the hub already follows, restated for alignment: the hub owns the
-Discord connection and Discord primitives. Projects own their own databases,
-their own session/thread meaning, and their own cleanup logic. The hub must
-never need to know what a "session" or a "conversation" is.
+Principle the hub follows, restated for alignment: the hub owns the Discord
+connection and Discord primitives. Projects own their own databases, their own
+session/thread meaning, and their own cleanup logic. The hub must never need to
+know what a "session" or a "conversation" is.
 
 ---
 
-## Open requests
+## Met requests this project relies on
 
-### 1. Thread deletion primitive (for test-session cleanup)
+- `POST /messages` — send/chunk project conversation text and replies.
+- `POST /threads` — create one public thread per session.
+- `DELETE /threads/{thread_id}` — delete a thread when the parent registration
+  opted in with `allow_thread_deletion: true`.
+- `POST /threads/{thread_id}/archive` — archive or unarchive a thread without
+  deleting its history.
+- `POST /registrations` and `DELETE /registrations/{channel_id}` — claim a
+  channel, route inbound callbacks, establish webhook identity, and safely
+  re-register when the thread-deletion opt-in changes.
+- `PUT /commands` — route project-owned slash commands, deferred responses,
+  followups, and option autocomplete.
+- `GET /channels/{channel_id}/permissions` — preflight delivery permissions
+  before paid model work.
+- Typing indicators, thread inheritance for inbound messages, and hub uptime /
+  timeout distinctions.
 
-- `DELETE /threads/{thread_id}` (or `POST /threads/{thread_id}/delete`) —
-  delete a thread the bot can manage.
+## Current project-side behavior
 
-**Reason:** projects run test sessions constantly during development. The
-desired flow is owned ENTIRELY by the consuming project: the user runs a
-cleanup command → the project deletes its own database rows and local state
-→ the project calls the hub to delete the Discord thread. The hub's part is
-only the Discord-side deletion primitive; it stays agnostic of what a
-session is.
-
-**Consumers:** this project (cleanup command already built against this
-contract — it degrades to "delete the thread manually" while the endpoint
-is absent, so there is no urgency), teaching-agent (same pattern, requested
-in its own integrations file). Two independent consumers want the same
-primitive, which is the hub's bar for a general-purpose feature.
+- Socratic Partner registers `#reflection` with `allow_thread_deletion: true`.
+- A failed `/ask-now` or automatic kickoff deletes only the empty thread it
+  just created.
+- Successful `/done` archives the completed session thread; archive failure is
+  reported but does not reopen the completed conversation.
+- `/model` declares autocomplete and answers through the hub callback with at
+  most 25 authorized choices.
+- `/delete-session` remains the explicit test-cleanup command for removing
+  local state plus the Discord thread.
 
 ## Declined (recorded so the idea is not re-litigated)
 
@@ -43,11 +53,3 @@ primitive, which is the hub's bar for a general-purpose feature.
   report and nothing to conform to. If Discord ever does vary the limit by
   send path, the right shape would be a capabilities endpoint
   (`GET /channels/{id}/limits`) — reopen only if that becomes real.
-
-## Already exists, no work needed
-
-`POST /messages` (chunking, replies, webhook identity), `POST /threads`,
-`PUT /commands` (routing, defer, followups), channel registrations with
-inbound callbacks and thread inheritance, typing indicators, permission
-preflight, harness integration. This project's entire text surface is
-covered by the current contract.

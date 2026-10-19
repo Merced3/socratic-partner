@@ -40,14 +40,18 @@ The v0.5.0 hub migration changed the Discord boundary: discord.py rows above now
 | Product contract | Current evidence | Level | Gap / next evidence |
 | --- | --- | --- | --- |
 | Pi subprocess never shows a console window | `test_subprocess_creationflags_hide_console_only_on_windows` + live observation | Unit + manual | None for current platform |
-| `/model` switches the model in any conversation state | `test_fake_subprocess_switches_model_across_real_pipes` + live `/model` acceptance | Fake-subprocess contract + manual | Autocomplete deferred (hub gap) |
-| Each session lives in its own thread; replies outside it are ignored | Authorization policy tests + live acceptance in `#reflection` | Unit + manual black box | Thread delete/archive deferred (hub gap) |
+| `/model` switches the model in any conversation state | `test_fake_subprocess_switches_model_across_real_pipes` + live `/model` acceptance | Fake-subprocess contract + manual | None |
+| `/model` autocomplete returns authorized, bounded choices | Adapter autocomplete tests + 2026-10-19 `#lab-text` acceptance | Adapter contract + manual black box | None |
+| Each session lives in its own thread; replies outside it are ignored | Authorization policy tests + live acceptance in `#reflection` | Unit + manual black box | None |
+| Failed `/ask-now` deletes only the empty thread it created | Adapter failure-path tests + 2026-10-19 broken-Pi lab acceptance | Adapter/application black box + manual external path | Automatic kickoff shares the automated cleanup contract; no forced live automatic failure |
+| Successful `/done` archives the completed thread without making archive failure corrupt completion | Adapter success/failure tests + 2026-10-19 lab `/done` with hub `200 archived=True` | Adapter/application black box + manual external path | Discord UI hides archived threads; visual location is operator evidence, not an automated guarantee |
+| Existing channel registration gains thread-deletion opt-in safely | Client registration/deregistration contract tests + adapter re-registration regression + live `#reflection` restart | Contract + application startup + manual restart evidence | None |
 | Discord interaction works without a Discord library or token | Hub client contract tests + live acceptance | Contract + manual black box | Hub downtime delivery is silent-miss (accepted) |
 | Authorization gating stays project-side | `test_hub_adapter.py` boundary permutations | Pure policy unit tests | None |
 | Harness owns lock, supervision, and prompt stop | Live acceptance: second instance refused, backoff recovery, fast Ctrl+C | Manual black box | None |
 | Hub timeouts are reported distinctly from unreachability | `test_slow_hub_reports_timeout_not_unreachable` | Contract | None |
 | Textless Pi responses are diagnosable without exposing content | `test_fake_subprocess_empty_text_is_diagnosable` | Fake-subprocess contract | Root cause of the observed instance unknown (transient) |
-| `/delete-session` removes local/durable state and requests thread deletion, degrading to manual deletion while the hub lacks the primitive | Store/application/adapter tests (`test_delete_*`, `test_discard_*`) | SQLite integration + application black box + adapter contract | Live Discord acceptance; hub thread-deletion endpoint is an open integration request |
+| `/delete-session` removes local/durable state and requests thread deletion, degrading clearly if Discord deletion fails | Store/application/adapter tests (`test_delete_*`, `test_discard_*`) | SQLite integration + application black box + adapter contract | Live `/delete-session` acceptance remains useful but the underlying hub deletion primitive passed live through failed-start cleanup |
 | `/testing` swaps to an isolated data store, refuses mid-conversation, and restores live state untouched | Adapter toggle tests | Adapter contract + real SQLite | Live Discord acceptance; gated behind test controls |
 
 ## Remaining bounded evidence

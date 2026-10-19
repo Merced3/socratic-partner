@@ -58,8 +58,18 @@ class HubClient:
         )
 
     async def delete_thread(self, thread_id: int) -> None:
-        """Delete a thread (requested contract; absent hubs answer 404)."""
+        """Delete a thread whose parent registration opted into deletion."""
         await self._request("DELETE", f"/threads/{thread_id}")
+
+    async def archive_thread(
+        self, thread_id: int, *, archived: bool = True, locked: bool = False
+    ) -> dict[str, Any]:
+        """Archive or unarchive a thread without deleting its messages."""
+        return await self._request(
+            "POST",
+            f"/threads/{thread_id}/archive",
+            json={"archived": archived, "locked": locked},
+        )
 
     async def get_registrations(self) -> list[dict[str, Any]]:
         result = await self._request("GET", "/registrations")
@@ -72,16 +82,22 @@ class HubClient:
         *,
         display_name: str | None = None,
         avatar_url: str | None = None,
+        allow_thread_deletion: bool = False,
     ) -> dict[str, Any]:
         payload: dict[str, Any] = {
             "channel_id": channel_id,
             "callback_url": callback_url,
+            "allow_thread_deletion": allow_thread_deletion,
         }
         if display_name is not None:
             payload["display_name"] = display_name
         if avatar_url is not None:
             payload["avatar_url"] = avatar_url
         return await self._request("POST", "/registrations", json=payload)
+
+    async def deregister_channel(self, channel_id: int) -> None:
+        """Release a channel registration before changing registration policy."""
+        await self._request("DELETE", f"/registrations/{channel_id}")
 
     async def put_commands(
         self, callback_url: str, commands: list[dict[str, Any]]

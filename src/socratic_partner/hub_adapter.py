@@ -184,16 +184,23 @@ class SocraticHubAdapter:
         health = await self.hub.health()
         if not health.get("discord_connected", False):
             raise HubError("discord-hub is up but not connected to Discord.")
+        registrations = await self.hub.get_registrations()
         registered = {
-            _safe_int(entry.get("channel_id"))
-            for entry in await self.hub.get_registrations()
+            channel_id: entry
+            for entry in registrations
+            if (channel_id := _safe_int(entry.get("channel_id"))) is not None
         }
-        if self.settings.discord_channel_id not in registered:
+        registration = registered.get(self.settings.discord_channel_id)
+        if registration is not None and registration.get("allow_thread_deletion") is not True:
+            await self.hub.deregister_channel(self.settings.discord_channel_id)
+            registration = None
+        if registration is None:
             await self.hub.register_channel(
                 self.settings.discord_channel_id,
                 self.settings.callback_url,
                 display_name="Socrates",
                 avatar_url=self.settings.avatar_url,
+                allow_thread_deletion=True,
             )
             logger.info("Registered the home channel with discord-hub.")
         result = await self.hub.put_commands(
@@ -228,8 +235,57 @@ class SocraticHubAdapter:
         """Handle one hub delivery; the return value is the interaction response."""
         if payload.get("type") == "command":
             return await self._handle_command(payload)
+        if payload.get("type") == "autocomplete":
+            return await self._handle_autocomplete(payload)
         asyncio.create_task(self._process_message(payload))
         return None
+
+    async def _handle_autocomplete(self, payload: dict) -> dict:
+        """Answer Discord autocomplete quickly through the hub's callback contract."""
+        channel_id = _safe_int(payload.get("channel_id"))
+        user = payload.get("user") or {}
+        user_id = _safe_int(user.get("id"))
+        active = self.store.get_active_conversation()
+        if (
+            channel_id is None
+            or user_id is None
+            or not command_authorized(
+                self.settings,
+                channel_id=channel_id,
+                user_id=user_id,
+                active_conversation_channel_id=(
+                    active.channel_id if active is not None else None
+                ),
+            )
+        ):
+            return {"choices": []}
+
+        option = payload.get("option") or {}
+        if payload.get("command") != "model" or option.get("name") != "model":
+            return {"choices": []}
+        try:
+            models = await self.pi_client.get_available_models()
+        except PiRpcError:
+            logger.exception("Model autocomplete could not list Pi models.")
+            return {"choices": []}
+
+        typed = str(option.get("value") or "").casefold().strip()
+        choices: list[dict[str, str]] = []
+        for model in models:
+            provider = str(model.get("provider") or "").strip()
+            model_id = str(model.get("id") or "").strip()
+            if not provider or not model_id:
+                continue
+            value = f"{provider}/{model_id}"
+            name = str(model.get("name") or model_id).strip()
+            searchable = f"{value} {name}".casefold()
+            if typed and typed not in searchable:
+                continue
+            label = f"{value} — {name}"[:100]
+            choices.append({"name": label, "value": value})
+            if len(choices) == 25:
+                break
+        return {"choices": choices}
 
     async def _process_message(self, payload: dict) -> None:
         text = str(payload.get("text") or "").strip()
@@ -519,20 +575,31 @@ class SocraticHubAdapter:
                 "A Socratic conversation is already open. Use `/done` before "
                 "starting another."
             )
-        thread_id = await self._create_session_thread()
+        try:
+            thread_id = await self._create_session_thread()
+        except MessageDeliveryFailed:
+            logger.exception("Could not create the Socratic session thread.")
+            return (
+                "The conversation could not be delivered or saved. Check `/status` "
+                "and the local logs."
+            )
         try:
             await self.conversation_service.start_conversation(channel_id=thread_id)
         except OperationBusy as exc:
+            await self._delete_failed_start_thread(thread_id)
             return f"{exc} Retry shortly."
         except ConversationAlreadyOpen:
+            await self._delete_failed_start_thread(thread_id)
             return (
                 "A Socratic conversation is already open. Use `/done` before "
                 "starting another."
             )
         except AgentRequestFailed as exc:
+            await self._delete_failed_start_thread(thread_id)
             logger.exception("Could not start Socratic conversation.")
             return exc.failure.discord_message()
         except (MessageDeliveryFailed, StatePersistenceFailed):
+            await self._delete_failed_start_thread(thread_id)
             logger.exception("Could not persist or deliver Socratic conversation.")
             return (
                 "The conversation could not be delivered or saved. Check `/status` "
@@ -569,9 +636,16 @@ class SocraticHubAdapter:
                 "The conversation could not be closed safely and remains open. "
                 "Retry `/done`."
             )
+        archive_warning = ""
+        try:
+            await self.hub.archive_thread(channel_id)
+        except HubError:
+            logger.exception("Could not archive completed session thread %s.", channel_id)
+            archive_warning = " Discord cleanup failed; archive the thread manually."
         return (
             "Conversation closed. The next interval begins from this completion "
             f"point: {_format_next_activation(completed.state)}."
+            + archive_warning
         )
 
     async def _deferred_model(self, payload: dict) -> str:
@@ -677,10 +751,21 @@ class SocraticHubAdapter:
         if self._stopping:
             return
         thread_id = await self._create_session_thread()
-        await self.conversation_service.start_claimed_conversation(
-            channel_id=thread_id,
-            lease=lease,
-        )
+        try:
+            await self.conversation_service.start_claimed_conversation(
+                channel_id=thread_id,
+                lease=lease,
+            )
+        except Exception:
+            await self._delete_failed_start_thread(thread_id)
+            raise
+
+    async def _delete_failed_start_thread(self, thread_id: int) -> None:
+        """Best-effort cleanup for a thread whose conversation never became durable."""
+        try:
+            await self.hub.delete_thread(thread_id)
+        except HubError:
+            logger.exception("Could not delete failed session thread %s.", thread_id)
 
     async def _notify_automatic_failure(self, failure: ClassifiedError) -> None:
         await self.hub.post_message(
@@ -781,6 +866,7 @@ class SocraticHubAdapter:
                         "description": "Model as provider/model-id.",
                         "type": "string",
                         "required": False,
+                        "autocomplete": True,
                     }
                 ],
             },
