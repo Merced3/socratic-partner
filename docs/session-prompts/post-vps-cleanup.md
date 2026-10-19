@@ -94,7 +94,10 @@ Completed and live-accepted.
 
 ### Operational notes
 
-- The updated code was temporarily patched onto the VPS for lab acceptance before commit because the deployment pipeline builds from the server clone. After acceptance, the server clone should be reset to the pushed commit.
+- The updated code was temporarily patched onto the VPS for lab acceptance before commit because the deployment pipeline builds from the server clone. After acceptance, the server clone was reset to pushed `main`, rebuilt, and redeployed from `abcf6ee` (`v0.6.1`).
+- Final pushed commits: `c96fd8f` (feature/docs), `abcf6ee` (runtime version metadata fix, tagged `v0.6.1`), and ops `855dc3c` (roadmap #4 tick).
+- GitHub CI passed for both project pushes/tags; the ops deploy workflow passed for the roadmap tick.
+- Final VPS verification: `socratic-partner` healthy, runtime version `0.6.1`, and `SOCRATIC_PARTNER_AUTOMATIC_SCHEDULER_ENABLED=false`.
 - The one-service Docker rebuild succeeded and did not rebuild other services.
 - `#reflection` is back in production configuration; the lab registration remains available for future tests.
 - Ops roadmap item #4 was ticked in `Automations/ops/session-prompts/README.md`.
