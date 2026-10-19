@@ -3,8 +3,8 @@
 ## Current revision
 
 - Active branch for accepted product code: `main`
-- Current release: `v0.6.0`
-- Package version: `0.6.0`
+- Current release: `v0.6.1`
+- Package version: `0.6.1`
 - SQLite schema: version 4 (unchanged since v0.1.0)
 - No `PENDING` state, durable outbox, or scheduler database migration
 
@@ -19,7 +19,7 @@ The post-v0.1.0 milestone series is complete and live-accepted:
 - `v0.3.0` — each session lives in its own thread under the configured home channel
 - `v0.4.0` — automation-harness owns the process lifecycle (lock, supervision, logs, `status.json`)
 - `v0.5.0` — all Discord interaction moved to discord-hub; socratic-partner contains no Discord library and holds no Discord credentials
-- `v0.6.0` — VPS cleanup: failed starts delete empty threads, completed threads archive, `/model` autocomplete works, and docs match the Docker/VPS runtime
+- `v0.6.1` — VPS cleanup: failed starts delete empty threads, completed threads archive, `/model` autocomplete works, and docs match the Docker/VPS runtime
 
 The product purpose and evidence practice are recorded in [`product-thesis.md`](product-thesis.md). Future directions in [`roadmap.md`](roadmap.md) are outcome hypotheses rather than prescribed implementations.
 
@@ -44,7 +44,7 @@ The product purpose and evidence practice are recorded in [`product-thesis.md`](
 - Harness supervision: single-instance lock, restart with backoff, structured logs, `data/status.json`
 - Prompt scheduler wakeup on stop; clean Ctrl+C in ~1–2 seconds
 
-## Live acceptance evidence (v0.1.1–v0.5.0)
+## Live acceptance evidence (v0.1.1–v0.6.1)
 
 Performed by the user against the private deployment with discord-hub running:
 
@@ -75,7 +75,7 @@ Lab acceptance on 2026-10-19 (`#lab-text`, isolated `/testing` store):
 
 ## Test status
 
-- Automated suite: 134 passing tests
+- Automated suite: 135 passing tests
 - Ruff and `git diff --check`: passing
 - Public application workflows use real temporary SQLite and controlled ports
 - The hub client is contract-tested against a protocol-shaped fake; adapter policy is unit-tested
@@ -105,5 +105,6 @@ Deferred ideas (outcome hypotheses, not commitments):
 
 - `v0.09`: historical project milestone name for the automatic scheduler; not a release tag
 - `v0.1.0`: first stable release and Git tag
-- `v0.1.1` … `v0.6.0`: the post-release milestone series (Pi window, `/model`, session threads, harness, hub migration, VPS cleanup)
+- `v0.1.1` … `v0.6.1`: the post-release milestone series (Pi window, `/model`, session threads, harness, hub migration, VPS cleanup)
+- `v0.6.0` was tagged briefly but immediately superseded by `v0.6.1` because its runtime `__version__` metadata still said `0.5.0`; use `v0.6.1`
 - Later releases follow `vMAJOR.MINOR.PATCH`

@@ -69,12 +69,12 @@ Completed and live-accepted.
 - Automatic scheduler kickoff uses the same failed-start cleanup path.
 - Successful `/done` archives the completed session thread. Archive failure is logged and reported as manual cleanup, but does not reopen or corrupt the completed conversation.
 - `/model` now declares hub autocomplete and returns authorized, filtered, max-25 choices; Pi/listing failure returns an empty choice list rather than leaving Discord waiting.
-- Package version moved to `0.6.0`.
+- Package version moved to `0.6.1`. (`v0.6.0` was tagged briefly, then superseded because runtime `__version__` metadata had been missed and still reported `0.5.0`.)
 
 ### Tests and validation
 
 - Added contract/adapter tests for failed-start deletion, delivery/persistence failure cleanup, automatic kickoff cleanup, archive success/failure, registration opt-in/re-registration, autocomplete filtering/limit/failure/authorization, and hub wire payloads.
-- Automated validation: **134 passed**, Ruff passed, `git diff --check` passed.
+- Automated validation: **135 passed**, Ruff passed, `git diff --check` passed. A packaging regression test now keeps `socratic_partner.__version__` aligned with `pyproject.toml`.
 - Live lab acceptance used `#lab-text`, not `#reflection`, with `/testing enabled:true`:
   - with Pi intentionally misconfigured, `/ask-now` failed cleanly and left no empty thread;
   - `/model` showed live autocomplete choices;

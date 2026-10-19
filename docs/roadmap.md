@@ -10,7 +10,7 @@ Read [`product-thesis.md`](product-thesis.md) first for the longer-lived purpose
 
 ## Current position
 
-The v0.09 automatic-scheduler milestone is complete and merged into `main`. Controlled rollout passed, and the one-week normal-use soak passed with no critical defects. The first stable release was v0.1.0; the post-release series now runs on the VPS and is at v0.6.0 after the 2026-10-19 post-VPS cleanup.
+The v0.09 automatic-scheduler milestone is complete and merged into `main`. Controlled rollout passed, and the one-week normal-use soak passed with no critical defects. The first stable release was v0.1.0; the post-release series now runs on the VPS and is at v0.6.1 after the 2026-10-19 post-VPS cleanup.
 
 The cleanup resolved the hub-era housekeeping gaps: failed starts remove empty threads, completed sessions archive their threads, `/model` autocomplete is live, and the production scheduler decision is recorded as **disabled**.
 

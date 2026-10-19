@@ -4,7 +4,7 @@ A personal conversational AI designed to challenge assumptions, expose tradeoffs
 
 ## Current status
 
-The current production release is v0.6.0. Socratic Partner runs on the DigitalOcean/Tailscale VPS with discord-hub; the ops `RUNBOOK.md` is the operational source of truth.
+The current production release is v0.6.1. Socratic Partner runs on the DigitalOcean/Tailscale VPS with discord-hub; the ops `RUNBOOK.md` is the operational source of truth.
 
 Implemented:
 
