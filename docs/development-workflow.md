@@ -40,6 +40,13 @@ Tests are necessary but not sufficient for Discord delivery, provider behavior, 
 
 ## Live acceptance
 
+For live Discord acceptance, follow **`Automations/ops/LAB.md`** for the shared
+claim/check/release lifecycle and protected registration history. Configure
+Socrates separately with its lab home channel, test controls, and isolated test
+store; afterward disable test controls, restore `#reflection`, verify production
+health, and leave the lab unregistered. Restore a prior channel owner only by
+explicit request from the actual snapshot.
+
 Each milestone must document exact manual steps and expected Discord/log output. Do not commit the milestone until the user reports that these steps pass.
 
 ## Database migrations

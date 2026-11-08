@@ -28,7 +28,7 @@ Prove a complete user workflow across the application boundary, such as:
 start application → invoke /ask-now → receive question → reply → restart → /done → session card
 ```
 
-Automated end-to-end tests should use controlled local substitutes for paid/unreliable external systems where possible. A smaller opt-in live suite may use the private Discord test deployment and a real model provider, but it must:
+Automated end-to-end tests should use controlled local substitutes for paid/unreliable external systems where possible. A smaller opt-in live suite may use the shared Discord lab and a real model provider. Follow **`Automations/ops/LAB.md`** for channel lifecycle and readiness; Socrates owns its `/testing` configuration, isolated data, and production restoration. Live acceptance must:
 
 - Never run by default in CI
 - Never commit or print credentials, Discord IDs, private messages, or runtime data

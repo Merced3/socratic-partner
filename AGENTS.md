@@ -33,7 +33,11 @@ Use this sequence for each milestone:
 5. Run automated tests, Ruff, and `git diff --check`.
 6. Confirm user-visible behavior has a black-box acceptance path and every new/modified test
    explains its purpose, regression risk, and resistance to overfitting.
-7. Ask the user to perform the documented Discord/restart acceptance test.
+7. For live Discord acceptance, follow **`Automations/ops/LAB.md`** and ask the
+   user to perform the documented Discord/restart test. Socrates still owns its
+   `/testing` controls, isolated test store, home-channel authorization, and
+   production restoration; the shared helper owns only generic channel
+   lifecycle and hub-network readiness checks.
 8. Commit and push only after live acceptance succeeds.
 
 Do not commit merely because unit tests pass.
