@@ -3,9 +3,10 @@
 ## Current revision
 
 - Active branch for accepted product code: `main`
-- Current release: `v0.6.1`
-- Package version: `0.6.1`
-- SQLite schema: version 4 (unchanged since v0.1.0)
+- Current release: `v0.7.0`
+- Package version: `0.7.0`
+- Production database: managed Postgres, Alembic `0001_postgres_v4`
+- Local/CI database: SQLite schema 4, including historical version 1–4 upgrades
 - No `PENDING` state, durable outbox, or scheduler database migration
 
 A commit hash is recorded only when it names a meaningful historical milestone. This file does not try to duplicate the ever-changing `HEAD`; Git remains authoritative for the latest revision.
@@ -20,6 +21,8 @@ The post-v0.1.0 milestone series is complete and live-accepted:
 - `v0.4.0` — automation-harness owns the process lifecycle (lock, supervision, logs, `status.json`)
 - `v0.5.0` — all Discord interaction moved to discord-hub; socratic-partner contains no Discord library and holds no Discord credentials
 - `v0.6.1` — VPS cleanup: failed starts delete empty threads, completed threads archive, `/model` autocomplete works, and docs match the Docker/VPS runtime
+
+- `v0.7.0` — production application/conversation state moved from SQLite to managed Postgres; Pi JSONL files remain local working memory
 
 The product purpose and evidence practice are recorded in [`product-thesis.md`](product-thesis.md). Future directions in [`roadmap.md`](roadmap.md) are outcome hypotheses rather than prescribed implementations.
 
@@ -67,6 +70,19 @@ Lab acceptance on 2026-10-19 (`#lab-text`, isolated `/testing` store):
 - `/status` showed `Conversation: none`
 - The service was restored to `#reflection`, re-registered that channel with thread-deletion opt-in, returned healthy, and passed a production `/status` smoke check
 
+### Live acceptance evidence (v0.7.0)
+
+On 2026-11-08, the frozen live SQLite source copied into managed Postgres with
+matching row counts and deterministic checksums (`application_state` 1,
+`conversations` 6). The real-dialect integration test passed. In `#lab-text`,
+the isolated `/testing` store completed `/ask-now` → reply → `/done`, including
+the session card and thread archive. A failed first attempt also confirmed
+empty-thread cleanup; its root cause was a stale Pi resume pointer to a
+read-only historical JSONL, fixed by archiving old transcripts and detaching
+only the two resume fields. Process restart passed. Production returned to
+`#reflection`, test controls were disabled, the lab channel was unregistered,
+and automatic scheduling remained disabled.
+
 ## Known limitations
 
 - Interaction responses appear as the hub's bot identity (ADR 0003); conversation messages appear as "Socrates"
@@ -75,7 +91,7 @@ Lab acceptance on 2026-10-19 (`#lab-text`, isolated `/testing` store):
 
 ## Test status
 
-- Automated suite: 135 passing tests
+- Automated suite: 137 passing tests with SQLite; one opt-in managed-Postgres integration test also passed
 - Ruff and `git diff --check`: passing
 - Public application workflows use real temporary SQLite and controlled ports
 - The hub client is contract-tested against a protocol-shaped fake; adapter policy is unit-tested
@@ -89,12 +105,15 @@ Production runs on the DigitalOcean/Tailscale VPS as the `socratic-partner` Dock
 
 The laptop `SocraticPartner` Task Scheduler entry was confirmed **Disabled** on 2026-10-19, so it will not compete with the VPS instance. Windows autostart documentation is historical.
 
-Rollback for this milestone is a normal VPS service rollback/rebuild from the prior Git revision; no database migration occurred. The one-time hub registration change only opts `#reflection` threads into deletion and remains compatible with the current hub. Automatic scheduling remains disabled by explicit 2026-10-19 user decision; enabling it later is an env change plus service restart.
+Rollback before new Postgres writes is removing `SOCRATIC_PARTNER_DATABASE_URL` and starting the prior SQLite-based image; the original SQLite remains read-only with a protected backup. After new production Postgres writes, rollback requires a reviewed merge rather than silently losing them. See `docs/postgres-migration.md`. SQLite/JSONL deletion remains blocked by the ops deletion gate.
+
+Previous release rollback was a normal VPS service rollback/rebuild from the prior Git revision; no database migration occurred. The one-time hub registration change only opts `#reflection` threads into deletion and remains compatible with the current hub. Automatic scheduling remains disabled by explicit 2026-10-19 user decision; enabling it later is an env change plus service restart.
 
 ## Immediate next steps
 
 - Return to normal VPS use with the automatic scheduler disabled
-- Treat `#reflection` as production; use `#lab-text` plus `/testing enabled:true` for future Discord acceptance where practical
+- Keep the original SQLite and archived Pi JSONL files read-only until the ops deletion gate
+- Treat `#reflection` as production; claim `#lab-text` plus `/testing enabled:true` for future Discord acceptance, then disable controls and release the channel
 
 Deferred ideas (outcome hypotheses, not commitments):
 

@@ -4,7 +4,7 @@ A personal conversational AI designed to challenge assumptions, expose tradeoffs
 
 ## Current status
 
-The current production release is v0.6.1. Socratic Partner runs on the DigitalOcean/Tailscale VPS with discord-hub; the ops `RUNBOOK.md` is the operational source of truth.
+The current production release is v0.7.0. Socratic Partner runs on the DigitalOcean/Tailscale VPS with discord-hub; the ops `RUNBOOK.md` is the operational source of truth.
 
 Implemented:
 
@@ -18,7 +18,8 @@ Implemented:
 - Successful `/done` archives the completed session thread
 - `/model` autocomplete through discord-hub
 - Versioned Socratic behavior, opening, and session-card prompts
-- SQLite schema migration and durable `WAITING`/`PAUSED` state
+- Postgres production state with Alembic migrations and durable `WAITING`/`PAUSED` state
+- SQLite development/test stores, including historical schema 1–4 upgrades
 - Persisted interval and planned next-activation timestamp
 - Isolated Pi RPC process with no tools or project resources
 - Persistent Pi session metadata and model usage records
@@ -86,7 +87,8 @@ SOCRATIC_PARTNER_CALLBACK_PORT=9100
 SOCRATIC_PARTNER_TEST_MODE=true
 SOCRATIC_PARTNER_TEST_CONTROLS_ENABLED=false
 SOCRATIC_PARTNER_AUTOMATIC_SCHEDULER_ENABLED=false
-SOCRATIC_PARTNER_DATABASE_PATH=data/socratic_partner.sqlite3
+SOCRATIC_PARTNER_DATABASE_URL=sqlite:///data/socratic_partner.sqlite3
+# Production: postgresql://socratic:password@host:25061/socratic?sslmode=require
 SOCRATIC_PARTNER_DEFAULT_INTERVAL_HOURS=24
 SOCRATIC_PARTNER_PI_EXECUTABLE=pi
 SOCRATIC_PARTNER_PI_SESSION_DIRECTORY=data/pi-sessions
@@ -127,6 +129,7 @@ Start with:
 - [`docs/project-state.md`](docs/project-state.md) — current known-good state and next milestone
 - [`docs/roadmap.md`](docs/roadmap.md) — release plan and longer-term direction
 - [`docs/development-workflow.md`](docs/development-workflow.md) — approval and acceptance process
+- [`docs/postgres-migration.md`](docs/postgres-migration.md) — production database configuration, migration evidence, and rollback
 - [`docs/automatic-scheduler.md`](docs/automatic-scheduler.md) — implemented scheduler behavior and guarantees
 - [`docs/setup/windows.md`](docs/setup/windows.md) — validated Windows installation procedure
 - [`docs/setup/windows-autostart.md`](docs/setup/windows-autostart.md) — historical Windows Task Scheduler autostart; production uses the VPS ops runbook
@@ -142,4 +145,4 @@ ruff check .
 
 ## Design direction
 
-Pi provides the model/session runtime through RPC while this application owns the conversation lifecycle, durable state, Discord interaction, and activation timing. Pi launches without filesystem or shell tools, extensions, skills, prompt templates, or project context. The application records persistent session, conversation, and usage metadata in SQLite.
+Pi provides the model/session runtime through RPC while this application owns the conversation lifecycle, durable state, Discord interaction, and activation timing. Pi launches without filesystem or shell tools, extensions, skills, prompt templates, or project context. The application records persistent session, conversation, and usage metadata in managed Postgres in production. SQLite remains the default for local development and CI; the real-Postgres integration test is opt-in via `SOCRATIC_PARTNER_TEST_POSTGRES_URL`. Pi JSONL transcripts remain local working memory and are not synchronized between machines.

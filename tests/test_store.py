@@ -4,6 +4,7 @@ import sqlite3
 from datetime import UTC, datetime, timedelta
 
 import pytest
+from sqlalchemy.exc import IntegrityError
 
 from socratic_partner.store import ApplicationStatus, ConversationStatus, StateStore
 
@@ -145,7 +146,7 @@ def test_only_one_conversation_can_be_active(tmp_path) -> None:
         conversation_id="conversation-1", channel_id=100, question_message_id=200
     )
 
-    with pytest.raises(sqlite3.IntegrityError):
+    with pytest.raises(IntegrityError):
         store.start_conversation(
             conversation_id="conversation-2", channel_id=100, question_message_id=201
         )

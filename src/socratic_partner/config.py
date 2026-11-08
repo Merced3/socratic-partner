@@ -37,6 +37,8 @@ class Settings:
     pi_model: str | None
     pi_timeout_seconds: int
     automatic_scheduler_enabled: bool
+    database_url: str = "sqlite:///data/socratic_partner.sqlite3"
+    test_database_url: str = "sqlite:///data/socratic_partner.test.sqlite3"
 
     @classmethod
     def from_environment(
@@ -72,12 +74,19 @@ class Settings:
             "SOCRATIC_PARTNER_DATABASE_PATH", "data/socratic_partner.sqlite3"
         ).strip()
         database_path = Path(database_path_value)
+        database_url = environment.get(
+            "SOCRATIC_PARTNER_DATABASE_URL", f"sqlite:///{database_path.as_posix()}"
+        ).strip()
         test_database_path = Path(
             environment.get(
                 "SOCRATIC_PARTNER_TEST_DATABASE_PATH",
                 "data/socratic_partner.test.sqlite3",
             ).strip()
         )
+        test_database_url = environment.get(
+            "SOCRATIC_PARTNER_TEST_DATABASE_URL",
+            f"sqlite:///{test_database_path.as_posix()}",
+        ).strip()
         default_interval_hours = _positive_int_with_default(
             environment, "SOCRATIC_PARTNER_DEFAULT_INTERVAL_HOURS", default=24
         )
@@ -103,10 +112,14 @@ class Settings:
             )
         if not database_path_value:
             raise ConfigurationError("SOCRATIC_PARTNER_DATABASE_PATH cannot be empty.")
-        if test_database_path == database_path:
+        if not database_url:
+            raise ConfigurationError("SOCRATIC_PARTNER_DATABASE_URL cannot be empty.")
+        if not test_database_url:
+            raise ConfigurationError("SOCRATIC_PARTNER_TEST_DATABASE_URL cannot be empty.")
+        if test_database_url == database_url:
             raise ConfigurationError(
-                "SOCRATIC_PARTNER_TEST_DATABASE_PATH must differ from "
-                "SOCRATIC_PARTNER_DATABASE_PATH; the test store exists to isolate "
+                "SOCRATIC_PARTNER_TEST_DATABASE_URL must differ from "
+                "SOCRATIC_PARTNER_DATABASE_URL; the test store exists to isolate "
                 "test data from live data."
             )
         if not pi_executable:
@@ -127,6 +140,8 @@ class Settings:
             log_level=log_level,
             database_path=database_path,
             test_database_path=test_database_path,
+            database_url=database_url,
+            test_database_url=test_database_url,
             default_interval_seconds=default_interval_hours * 60 * 60,
             pi_executable=pi_executable,
             pi_session_directory=Path(pi_session_directory_value),

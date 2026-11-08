@@ -26,12 +26,34 @@ def test_loads_valid_environment() -> None:
     assert settings.test_mode is True
     assert settings.test_controls_enabled is False
     assert settings.database_path.as_posix() == "data/socratic_partner.sqlite3"
+    assert settings.database_url == "sqlite:///data/socratic_partner.sqlite3"
+    assert settings.test_database_url == "sqlite:///data/socratic_partner.test.sqlite3"
     assert settings.default_interval_seconds == 24 * 60 * 60
     assert settings.pi_executable == "pi"
     assert settings.pi_session_directory.as_posix() == "data/pi-sessions"
     assert settings.pi_model is None
     assert settings.pi_timeout_seconds == 120
     assert settings.automatic_scheduler_enabled is False
+
+
+def test_postgres_url_replaces_sqlite_path_configuration() -> None:
+    """Production selects managed Postgres explicitly without changing local test defaults."""
+    environment = {
+        **VALID_ENVIRONMENT,
+        "SOCRATIC_PARTNER_DATABASE_URL": "postgresql://socratic:secret@db:25061/socratic?sslmode=require",
+    }
+
+    settings = Settings.from_environment(environment, env_file=None)
+
+    assert settings.database_url == environment["SOCRATIC_PARTNER_DATABASE_URL"]
+
+
+def test_rejects_empty_database_url() -> None:
+    """An explicitly empty URL is unsafe configuration, not a request to use live defaults."""
+    environment = {**VALID_ENVIRONMENT, "SOCRATIC_PARTNER_DATABASE_URL": "  "}
+
+    with pytest.raises(ConfigurationError, match="SOCRATIC_PARTNER_DATABASE_URL cannot be empty"):
+        Settings.from_environment(environment, env_file=None)
 
 
 def test_explicitly_enables_test_controls() -> None:

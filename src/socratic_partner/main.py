@@ -37,7 +37,7 @@ def configure_logging(level: str) -> None:
 async def socratic_partner_service(ctx: ServiceContext, settings: Settings) -> None:
     """Run the hub adapter and callback server until the harness stops them."""
     store = StateStore(
-        settings.database_path,
+        settings.database_url,
         default_interval_seconds=settings.default_interval_seconds,
     )
     store.initialize()

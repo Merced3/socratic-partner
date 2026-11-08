@@ -67,7 +67,8 @@ and infrastructure. It:
 - Determines application-specific error behavior.
 
 Discord delegates conversation operations to this service. Tests can use the same public
-operations with real temporary SQLite and controlled agent/message ports.
+operations with real temporary SQLite and controlled agent/message ports; an opt-in integration
+test verifies the same public contract on managed Postgres.
 
 ### Pi RPC client
 
@@ -77,11 +78,13 @@ operations with real temporary SQLite and controlled agent/message ports.
 - Rejects assistant messages with `stopReason: error`.
 - Runs without tools, extensions, skills, templates, or project context.
 
-### SQLite store
+### Durable store
 
-- Owns durable application and conversation metadata.
-- Uses explicit schema versions and migrations.
-- Stores no secrets.
+- Owns durable application and conversation metadata in managed Postgres in production.
+- Uses Alembic migrations, UTC `timestamptz` values, and 64-bit Discord identifiers.
+- Retains SQLite as the default local/CI dialect and supports upgrades from historical schemas 1–4.
+- Stores no secrets; the database URL comes from `SOCRATIC_PARTNER_DATABASE_URL`.
+- Pi JSONL sessions remain local working memory, not cross-machine durable application state.
 - Runtime files remain ignored by Git and owned by the deployment.
 
 ### Process lifecycle

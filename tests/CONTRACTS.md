@@ -54,6 +54,15 @@ The v0.5.0 hub migration changed the Discord boundary: discord.py rows above now
 | `/delete-session` removes local/durable state and requests thread deletion, degrading clearly if Discord deletion fails | Store/application/adapter tests (`test_delete_*`, `test_discard_*`) | SQLite integration + application black box + adapter contract | Live `/delete-session` acceptance remains useful but the underlying hub deletion primitive passed live through failed-start cleanup |
 | `/testing` swaps to an isolated data store, refuses mid-conversation, and restores live state untouched | Adapter toggle tests | Adapter contract + real SQLite | Live Discord acceptance; gated behind test controls |
 
+## v0.7.0 durable-store update
+
+| Product contract | Current evidence | Level | Gap / next evidence |
+| --- | --- | --- | --- |
+| Existing schema-4 state reaches managed Postgres without loss | Frozen production copy: 1 application-state and 6 conversation rows, matching deterministic checksums; real-Postgres integration test | Managed database migration + automated integration | Post-cutover encrypted dump/restore is an ops deletion-gate requirement |
+| Public lifecycle works on real Postgres | Opt-in `test_postgres.py` plus live `/ask-now` → reply → `/done` in the isolated lab store | Automated real-dialect + manual Discord black box | Live lab conversation uses SQLite `/testing`; production DB startup/state/restart verified directly |
+| Old Pi transcripts are not resumed across machines | Archived six source JSONL files, detached stale resume pointers, fresh lab session passed | Operational + manual black box | New JSONL remains machine-local working memory |
+| Cutover preserves operational decisions | Production restored to `#reflection`, test controls off, lab unregistered, automatic scheduler off after restart | Live process/configuration verification | None for P2b scope |
+
 ## Remaining bounded evidence
 
 Automatic scheduling has completed controlled rollout. Remaining evidence should not delay the soak unnecessarily:

@@ -483,14 +483,11 @@ class SocraticHubAdapter:
         if enabled:
             if self._test_store is None:
                 self._test_store = StateStore(
-                    self.settings.test_database_path,
+                    self.settings.test_database_url,
                     default_interval_seconds=self.settings.default_interval_seconds,
                 )
                 self._test_store.initialize()
-                logger.info(
-                    "Initialized the isolated test data store at %s.",
-                    self.settings.test_database_path,
-                )
+                logger.info("Initialized the isolated test data store.")
             self._activate_store(self._test_store)
         else:
             self._activate_store(self._live_store)

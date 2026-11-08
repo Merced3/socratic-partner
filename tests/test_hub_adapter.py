@@ -634,6 +634,7 @@ def _testing_settings(tmp_path: Path, **overrides) -> Settings:
         SETTINGS,
         test_controls_enabled=True,
         test_database_path=tmp_path / "testing.sqlite3",
+        test_database_url=f"sqlite:///{(tmp_path / 'testing.sqlite3').as_posix()}",
         **overrides,
     )
 
