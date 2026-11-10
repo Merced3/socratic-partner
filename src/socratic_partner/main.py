@@ -86,7 +86,7 @@ def main() -> None:
         raise SystemExit(f"Configuration error: {exc}") from exc
 
     configure_logging(settings.log_level)
-    harness = Harness(HarnessConfig(data_dir="data"), name="socratic-partner")
+    harness = Harness(HarnessConfig.from_env(), name="socratic-partner")
 
     async def service(ctx: ServiceContext) -> None:
         await socratic_partner_service(ctx, settings)

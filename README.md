@@ -89,6 +89,9 @@ SOCRATIC_PARTNER_TEST_CONTROLS_ENABLED=false
 SOCRATIC_PARTNER_AUTOMATIC_SCHEDULER_ENABLED=false
 SOCRATIC_PARTNER_DATABASE_URL=sqlite:///data/socratic_partner.sqlite3
 # Production: postgresql://socratic:password@host:25061/socratic?sslmode=require
+# Harness operational state is separate; production uses harness_socratic.
+AUTOMATION_HARNESS_DATA_DIR=data
+# HARNESS_DATABASE_URL=postgresql://harness_socratic:password@host:25061/harness_socratic?sslmode=require
 SOCRATIC_PARTNER_DEFAULT_INTERVAL_HOURS=24
 SOCRATIC_PARTNER_PI_EXECUTABLE=pi
 SOCRATIC_PARTNER_PI_SESSION_DIRECTORY=data/pi-sessions

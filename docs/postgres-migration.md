@@ -12,8 +12,9 @@ The initial Postgres migration creates equivalents of SQLite schema 4:
 `application_state`, `conversations`, and the one-active-conversation partial
 index. Timestamps become UTC `timestamptz`; Discord IDs become 64-bit integers.
 The reviewed copy preserves every application-state and conversation value,
-including session cards and Pi session metadata. It does not migrate the
-harness scheduler database or Pi JSONL transcripts.
+including session cards and Pi session metadata. It does not migrate Pi JSONL
+transcripts. The harness operational database was deliberately outside P2b's
+scope; the later per-host cutover handles it separately as described below.
 
 Pi JSONL files are working memory. Complete open conversations before cutover,
 retain source JSONL files read-only, and start future sessions on the new host.
@@ -51,6 +52,24 @@ pytest tests/test_postgres.py -v
 
 Do not point this test at a populated production database: it creates and
 cleans its own fixture rows.
+
+## Harness operational state (per-host cutover follow-up)
+
+Socratic's installed CLI uses `HarnessConfig.from_env()`. Setting
+`HARNESS_DATABASE_URL` selects the existing `harness_socratic` managed database
+for harness runs, schedules, KV state, and cross-process lease ownership;
+`AUTOMATION_HARNESS_DATA_DIR` controls only disposable local files such as
+`status.json`. This is independent of application/conversation state in
+`socratic`. The P2a harness migration utility performs an idempotent final
+source delta copy before the new host starts; no new Socratic schema migration
+or duplicate application copy is needed.
+
+Before enabling the URL, preserve the old harness SQLite snapshot and stop the
+old process so no second lease/writer exists. Verify run counts/checksums, one
+active Postgres lease, health, real Discord behavior, and restart persistence.
+If cutover fails before new harness writes, removing the URL returns to the
+preserved SQLite configuration; after new Postgres writes, use the harness
+merge/recovery evidence rather than discarding them.
 
 ## Interruption and rollback
 
