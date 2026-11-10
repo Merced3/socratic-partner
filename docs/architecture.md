@@ -89,7 +89,7 @@ test verifies the same public contract on managed Postgres.
 
 ### Process lifecycle
 
-The automation-harness is embedded as a dependency and owns the in-process lifecycle: single-instance lock, graceful stop, supervised restart with backoff, structured logs, and `data/status.json`. Production startup/restart is owned by Docker Compose on the VPS; see the ops `RUNBOOK.md`. Windows Task Scheduler autostart is retained only as a historical deployment guide.
+The automation-harness is embedded as a dependency and owns the in-process lifecycle: single-instance lease/lock, graceful stop, supervised restart with backoff, structured logs, and `data/status.json`. The installed CLI constructs `HarnessConfig.from_env()` so production can keep runs, schedules, KV, and lease ownership in the separate `harness_socratic` managed database through `HARNESS_DATABASE_URL`; local development retains SQLite by default. This operational DB is distinct from the `socratic` application/conversation DB. Production startup/restart is owned by Docker Compose on the VPS; see the ops `RUNBOOK.md`. Windows Task Scheduler autostart is retained only as a historical deployment guide.
 
 ## Session boundaries
 
