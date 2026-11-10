@@ -23,7 +23,7 @@ def _recording_client(handler) -> tuple[HubClient, list[httpx.Request]]:
         return handler(request)
 
     return (
-        HubClient("http://hub.test", transport=httpx.MockTransport(handle)),
+        HubClient("http://hub.test", "test-project-token", transport=httpx.MockTransport(handle)),
         requests,
     )
 
@@ -42,6 +42,22 @@ async def test_post_message_sends_contract_payload() -> None:
     assert request.method == "POST" and request.url.path == "/messages"
     body = json.loads(request.content)
     assert body == {"channel_id": 123, "text": "hello", "reply_to_message_id": "42"}
+
+
+async def test_every_request_carries_project_bearer_token() -> None:
+    """Project ownership is established on the wire, including public health checks."""
+    client, requests = _recording_client(
+        lambda request: httpx.Response(200, json={"status": "ok"})
+    )
+
+    await client.health()
+    await client.post_message(123, "hello")
+    await client.close()
+
+    assert [request.headers["Authorization"] for request in requests] == [
+        "Bearer test-project-token",
+        "Bearer test-project-token",
+    ]
 
 
 async def test_hub_rejection_surfaces_status_and_detail() -> None:
@@ -64,7 +80,9 @@ async def test_unreachable_hub_is_a_distinct_failure() -> None:
     def refuse(request: httpx.Request) -> httpx.Response:
         raise httpx.ConnectError("connection refused", request=request)
 
-    client = HubClient("http://hub.test", transport=httpx.MockTransport(refuse))
+    client = HubClient(
+        "http://hub.test", "test-project-token", transport=httpx.MockTransport(refuse)
+    )
 
     with pytest.raises(HubError, match="unreachable"):
         await client.health()
@@ -78,7 +96,7 @@ async def test_slow_hub_reports_timeout_not_unreachable() -> None:
     def hang(request: httpx.Request) -> httpx.Response:
         raise httpx.ReadTimeout("read timed out", request=request)
 
-    client = HubClient("http://hub.test", transport=httpx.MockTransport(hang))
+    client = HubClient("http://hub.test", "test-project-token", transport=httpx.MockTransport(hang))
 
     with pytest.raises(HubError, match="timed out"):
         await client.health()

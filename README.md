@@ -82,6 +82,7 @@ Fill in `.env` locally:
 DISCORD_CHANNEL_ID=your-home-channel-id
 DISCORD_ALLOWED_USER_ID=your-user-id
 SOCRATIC_PARTNER_HUB_URL=http://localhost:8100
+SOCRATIC_PARTNER_HUB_TOKEN=your-socratic-partner-hub-token
 SOCRATIC_PARTNER_CALLBACK_HOST=127.0.0.1
 SOCRATIC_PARTNER_CALLBACK_PORT=9100
 SOCRATIC_PARTNER_TEST_MODE=true
@@ -100,11 +101,19 @@ SOCRATIC_PARTNER_PI_TIMEOUT_SECONDS=120
 SOCRATIC_PARTNER_LOG_LEVEL=INFO
 ```
 
-`.env` and runtime data are ignored by Git. On startup, Socratic Partner
-registers the home channel with the hub (its messages arrive as `Socrates`
-via the channel webhook), opts that channel into thread deletion, and
-publishes its slash commands through the hub. Production configuration and
-restart/rollback live in the ops `RUNBOOK.md`, not in this development guide.
+`.env` and runtime data are ignored by Git. The required hub project token is
+provided by the operator and must never be logged or committed. Socratic
+Partner sends it as a bearer credential on every hub request and uses it to
+verify each callback's project id, five-minute timestamp, and HMAC-SHA256 over
+the exact raw body before parsing or dispatch. Forged, stale, unsigned, and
+wrong-project callbacks receive `401` without invoking application work.
+Socratic Partner has no voice-streaming integration.
+
+On startup, Socratic Partner registers the home channel with the hub (its
+messages arrive as `Socrates` via the channel webhook), opts that channel into
+thread deletion, and publishes its slash commands through the hub. Production
+configuration and restart/rollback live in the ops `RUNBOOK.md`, not in this
+development guide.
 
 ## Run
 

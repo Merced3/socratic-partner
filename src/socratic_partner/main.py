@@ -51,11 +51,11 @@ async def socratic_partner_service(ctx: ServiceContext, settings: Settings) -> N
         system_prompt=SYSTEM_PROMPT,
         timeout_seconds=settings.pi_timeout_seconds,
     )
-    hub = HubClient(settings.hub_url)
+    hub = HubClient(settings.hub_url, settings.hub_token)
     adapter = SocraticHubAdapter(settings, store, pi_client, hub)
     await adapter.start()  # fails (and the harness retries) if the hub is down
 
-    callback_app = create_callback_app(adapter.dispatch)
+    callback_app = create_callback_app(adapter.dispatch, settings.hub_token)
     server = uvicorn.Server(
         uvicorn.Config(
             callback_app,
