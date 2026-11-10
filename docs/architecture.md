@@ -50,6 +50,7 @@ A small composition layer necessarily knows how to register the application oper
 
 - Owns no Discord connection and imports no Discord library; discord-hub does.
 - Receives allowlisted command invocations and messages through a local HTTP callback.
+- Authenticates every hub API request with its project bearer token; verifies callback project, timestamp, and HMAC over exact raw bytes before parsing or application dispatch.
 - Sends ephemeral control responses (via interaction responses/followups) and persistent conversation messages (via the hub API).
 - Enforces the channel/user authorization boundary project-side (ADR 0003).
 - Creates one session thread per conversation in the configured home channel.

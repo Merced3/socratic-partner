@@ -7,6 +7,7 @@ from socratic_partner.config import ConfigurationError, Settings
 VALID_ENVIRONMENT = {
     "DISCORD_CHANNEL_ID": "200",
     "DISCORD_ALLOWED_USER_ID": "300",
+    "SOCRATIC_PARTNER_HUB_TOKEN": "test-project-token",
     "SOCRATIC_PARTNER_TEST_MODE": "true",
     "SOCRATIC_PARTNER_LOG_LEVEL": "INFO",
 }
@@ -19,6 +20,7 @@ def test_loads_valid_environment() -> None:
     assert settings.discord_channel_id == 200
     assert settings.discord_allowed_user_id == 300
     assert settings.hub_url == "http://localhost:8100"
+    assert settings.hub_token == "test-project-token"
     assert settings.callback_host == "127.0.0.1"
     assert settings.callback_port == 9100
     assert settings.callback_url == "http://localhost:9100/discord"
@@ -78,6 +80,14 @@ def test_explicitly_enables_automatic_scheduler() -> None:
     settings = Settings.from_environment(environment, env_file=None)
 
     assert settings.automatic_scheduler_enabled is True
+
+
+def test_rejects_missing_hub_token() -> None:
+    """Required hub identity must fail closed before either HTTP or callbacks start."""
+    environment = {**VALID_ENVIRONMENT, "SOCRATIC_PARTNER_HUB_TOKEN": "  "}
+
+    with pytest.raises(ConfigurationError, match="SOCRATIC_PARTNER_HUB_TOKEN is required"):
+        Settings.from_environment(environment, env_file=None)
 
 
 def test_rejects_missing_home_channel() -> None:

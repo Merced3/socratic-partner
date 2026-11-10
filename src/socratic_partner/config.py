@@ -22,6 +22,7 @@ class Settings:
     discord_channel_id: int
     discord_allowed_user_id: int
     hub_url: str
+    hub_token: str
     callback_host: str
     callback_port: int
     callback_url: str
@@ -55,6 +56,7 @@ class Settings:
         channel_id = _required_positive_int(environment, "DISCORD_CHANNEL_ID")
         user_id = _required_positive_int(environment, "DISCORD_ALLOWED_USER_ID")
         hub_url = environment.get("SOCRATIC_PARTNER_HUB_URL", "http://localhost:8100").strip()
+        hub_token = _required_text(environment, "SOCRATIC_PARTNER_HUB_TOKEN")
         callback_host = environment.get(
             "SOCRATIC_PARTNER_CALLBACK_HOST", "127.0.0.1"
         ).strip()
@@ -131,6 +133,7 @@ class Settings:
             discord_channel_id=channel_id,
             discord_allowed_user_id=user_id,
             hub_url=hub_url,
+            hub_token=hub_token,
             callback_host=callback_host,
             callback_port=callback_port,
             callback_url=callback_url,

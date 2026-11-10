@@ -34,6 +34,7 @@ SETTINGS = Settings(
     discord_channel_id=200,
     discord_allowed_user_id=300,
     hub_url="http://localhost:8100",
+    hub_token="test-project-token",
     callback_host="127.0.0.1",
     callback_port=9100,
     callback_url="http://localhost:9100/discord",

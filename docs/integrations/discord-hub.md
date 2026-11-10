@@ -34,6 +34,8 @@ know what a "session" or a "conversation" is.
 
 ## Current project-side behavior
 
+- `SOCRATIC_PARTNER_HUB_TOKEN` is required and stays only in ignored environment configuration. The shared client sends it on every hub HTTP request, including health; Socratic Partner has no voice WebSocket path.
+- `/discord` accepts only callbacks for `socratic-partner` with a timestamp no more than five minutes from the consumer clock and a `v1=` HMAC-SHA256 over `<timestamp>.<exact-raw-body>`, compared in constant time. Verification precedes JSON parsing and dispatch; missing, bad, tampered, stale, and wrong-project deliveries return `401` without application work. `/health` remains public.
 - Socratic Partner registers `#reflection` with `allow_thread_deletion: true`.
 - A failed `/ask-now` or automatic kickoff deletes only the empty thread it
   just created.
